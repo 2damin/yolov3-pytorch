@@ -4,8 +4,9 @@ import torch
 import argparse
 import cv2
 from glob import glob
-import torchsummary
+import torchsummary as summary
 from model.yolov3 import DarkNet53
+from dataloader.yolodata import Yolodata 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="YOLOV3-PYTORCH")
@@ -13,7 +14,7 @@ def parse_args():
                         default=0, type=int)
     parser.add_argument('--mode', dest='mode', help="train or test",
                         default=None, type=str)
-    parser.add_argument('--input_dir', dest='inpu_dir', help="input directory",
+    parser.add_argument('--input_dir', dest='input_dir', help="input directory",
                         default=None, type=str)
     if len(sys.argv) == 1:
         parser.print_help()
@@ -28,7 +29,12 @@ def train():
 def test():
     print("test")
 
+    train_data = Yolodata(train=True, transform=None)
+
     backbone = DarkNet53(3,5,512,512)
+    backbone = backbone.cpu()
+
+    #summary.summary(backbone, input_size=(3, 1280, 704), device='cpu')
 
 
 if __name__ == "__main__":
