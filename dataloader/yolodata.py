@@ -2,7 +2,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms as tf
 import os,sys
 from PIL import Image
-
+import numpy as np
 
 class Yolodata(Dataset):
     file_dir = ""
@@ -33,13 +33,19 @@ class Yolodata(Dataset):
                 img_data.append(self.file_dir + i)
         print("data len : {}".format(len(img_data)))
 
-        self.resize = tf.Resize()
+        self.img_data = img_data
+
+        self.resize = tf.Resize([256,256])
     
     def __getitem__(self, index):
-        img_path = self.imgs[index]
+        img_path = self.img_data[index]
         with open(img_path, 'rb') as f:
             img = Image.open(f)
-        img = self.resize(img)
-        return img
+            img = self.resize(img)
+        out = {'image':np.transpose(np.array(img, dtype=np.float)/255,(2,0,1))}
+        return out
+
+    def __len__(self):
+        return len(self.img_data)
 
         
