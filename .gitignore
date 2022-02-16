@@ -1,0 +1,7 @@
+model/__pycache__/*
+.vscode
+*.pyc
+log
+output/*
+test_code.py
+*.onnx
