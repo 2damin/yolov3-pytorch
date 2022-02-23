@@ -30,7 +30,7 @@ class Trainer:
         self.lr_scheduler = optim.lr_scheduler.StepLR(
             self.optimizer,
             step_size = 25,
-            gamma = 0.5)
+            gamma = 0.9)
 
     def run(self):
         # with torch.profiler.profile(
