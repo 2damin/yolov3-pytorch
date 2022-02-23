@@ -37,6 +37,8 @@ I recommend Nvidia NGC docker image. [link](https://catalog.ngc.nvidia.com/orgs/
 ## Dependency
 
 ```
+python3
+
 Numpy
 
 torch >= 1.9
@@ -75,3 +77,21 @@ python main.py --mode test --cfg ./cfg/yolov3.cfg --gpu 0(or 1) --checkpoint ${s
 --gpu : if you use GPU, set 1. If you use CPU, set 0.
 
 --checkpoint : the path of saved model checkpoint. If you want to load the previous train, or if you test(evaluate) the model.
+
+
+
+## Visualize training graph
+
+Using Tensorboard,
+
+```{r, engine='bash', count_lines}
+tensorboard --logdir=./output --port 6006
+```
+
+-------------------------
+
+# Reference
+
+[YOLOv3 paper](https://arxiv.org/abs/1804.02767)
+
+[KITTI dataset](http://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=2d)
