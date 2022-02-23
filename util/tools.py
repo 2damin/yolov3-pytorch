@@ -23,8 +23,8 @@ def cxcy2minmax(box):
     else:
         xmin = box[0] - box[2] / 2
         ymin = box[1] - box[3] / 2
-        xmax = box[2] + box[2] / 2
-        ymax = box[3] + box[3] / 2
+        xmax = box[0] + box[2] / 2
+        ymax = box[1] + box[3] / 2
         box[0] = xmin
         box[1] = ymin
         box[2] = xmax
@@ -109,20 +109,48 @@ def softmax(a):
 def drawBox(_img, boxes, mode = 0):
     _img = _img * 255
     #img dim is [C,H,W]
-    if _img.shape[0] < 4:
+    if _img.shape[0] == 3:
         _img_data = np.array(np.transpose(_img, (1,2,0)), dtype=np.uint8)
         img_data = Image.fromarray(_img_data)
-    else:
-        img_data = Image.fromarray(_img, 'BGR')
+    elif _img.ndim == 2:
+        _img_data = np.array(_img, dtype=np.uint8)
+        img_data = Image.fromarray(_img_data, 'L')
     draw = ImageDraw.Draw(img_data)
     for box in boxes:
-        if box[4] < 0.5:
+        if (box[4] + box[5]) / 2 < 0.5:
             continue
         
         if mode == 0:
             draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=(0,255,0), width=1)
         else:
             draw.rectangle((box[0],box[1],box[2],box[3]), outline=(0,255,0), width=1)
+    plt.imshow(img_data)
+    plt.show()
+
+def drawBoxes(_img, boxes, gt, mode = 0):
+    _img = _img * 255
+    #img dim is [C,H,W]
+    if _img.shape[0] == 3:
+        _img_data = np.array(np.transpose(_img, (1,2,0)), dtype=np.uint8)
+        img_data = Image.fromarray(_img_data)
+    elif _img.ndim == 2:
+        _img_data = np.array(_img, dtype=np.uint8)
+        img_data = Image.fromarray(_img_data, 'L')
+    draw = ImageDraw.Draw(img_data)
+    for box in boxes:
+        if (box[4] + box[5]) / 2 < 0.5:
+            continue
+        
+        if mode == 0:
+            draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=(0,255,0), width=1)
+        else:
+            draw.rectangle((box[0],box[1],box[2],box[3]), outline=(0,255,0), width=1)
+    
+    for g in gt:
+        if mode == 0:
+            draw.rectangle((g[0] - g[2]/2, g[1] - g[3]/2, g[0] + g[2]/2, g[1] + g[3]/2), outline=(255,0,0), width=1)
+        else:
+            draw.rectangle((g[0],g[1],g[2],g[3]), outline=(255,0,0), width=1)
     plt.imshow(img_data)
     plt.show()
 
@@ -193,7 +221,8 @@ def non_max_sup(input, num_classes, conf_th = 0.5, nms_th = 0.4):
     box[:,:,3] = input[:,:,1] + input[:,:,3] / 2
     input[:,:,:4] = box[:,:,:4]
     
-    output = [None for _ in range(len(input))]
+    #output = [None for _ in range(len(input))]
+    output = None
     for i, pred in enumerate(input):
         conf_mask = (pred[:,4] >= conf_th).squeeze()
         pred = pred[conf_mask]
@@ -229,7 +258,7 @@ def non_max_sup(input, num_classes, conf_th = 0.5, nms_th = 0.4):
             
             max_detections = torch.cat(max_detections).data
             #update outputs
-            output[i] = max_detections if output[i] is None else torch.cat((output[i], max_detections))
+            output = max_detections if output is None else torch.cat((output, max_detections))
     return output
 
 def get_lr(optimizer):
