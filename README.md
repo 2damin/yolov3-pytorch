@@ -28,7 +28,7 @@ This is made with Pytorch.
 I recommend Nvidia NGC docker image. [link](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch)
 
 1. docker pull nvcr.io/nvidia/pytorch:xx.xx-py3
-2. docker run --gpus all -it --rm -v local_dir:container_dir nvcr.io/nvidia/pytorch:xx.xx-py3
+2. docker run --gpus all -it --rm -v local_dir:container_dir -p 8888:8888 nvcr.io/nvidia/pytorch:xx.xx-py3
    1. check "nvidia-smi"
    2. check "nvcc --version"
 3. git clone https://github.com/2damin/yolov3-pytorch.git
@@ -39,11 +39,13 @@ I recommend Nvidia NGC docker image. [link](https://catalog.ngc.nvidia.com/orgs/
 ```
 Numpy
 
-torch
+torch >= 1.9
 
-torchvision
+torchvision >= 0.10
 
 tensorboard
+
+tensorboardX
 
 torchsummary
 ```
