@@ -1,4 +1,3 @@
-from matplotlib.lines import Line2D
 import torch
 from torch._C import device
 import torch.nn as nn
