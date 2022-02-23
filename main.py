@@ -2,7 +2,6 @@ import os,sys
 #import numpy as np
 import torch
 import argparse
-import cv2
 from glob import glob
 import warnings
 
@@ -22,8 +21,6 @@ def parse_args():
     parser.add_argument('--gpu', dest='gpu', help="GPU to use",
                         default=0, type=int)
     parser.add_argument('--mode', dest='mode', help="train or test",
-                        default=None, type=str)
-    parser.add_argument('--input_dir', dest='input_dir', help="input directory",
                         default=None, type=str)
     parser.add_argument('--cfg', dest='cfg', help="model config path",
                         default=None, type=str)
@@ -94,8 +91,8 @@ def test(hparam):
     model = DarkNet53(args.cfg, is_train=False)
     if args.checkpoint is not None:
         print("load pretrained model ", args.checkpoint)
-        state_dict = torch.load(args.checkpoint)
-        model.load_state_dict(state_dict)
+        checkpoint = torch.load(args.checkpoint)
+        model.load_state_dict(checkpoint['model_state_dict'])
 
     if args.gpu == 0:
         device = torch.device("cpu")
