@@ -15,11 +15,17 @@ from dataloader.yolodata import *
 from train.trainer import Trainer
 import torch.utils as utils
 from tensorboardX import SummaryWriter
+import pynvml
+
+def get_memory_free_MiB(gpu_index):
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
+    mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    return mem_info.free // 1024 ** 2
 
 def parse_args():
     parser = argparse.ArgumentParser(description="YOLOV3-PYTORCH")
-    parser.add_argument('--gpu', dest='gpu', help="GPU to use",
-                        default=0, type=int)
+    parser.add_argument("--gpus", type=int, nargs='+', default=[0], help="List of device ids.")
     parser.add_argument('--mode', dest='mode', help="train or test",
                         default=None, type=str)
     parser.add_argument('--cfg', dest='cfg', help="model config path",
@@ -32,34 +38,39 @@ def parse_args():
         sys.exit(1)
     args = parser.parse_args()
     return args
-    
-
-def _collate_fn(batch):
-    _box_tensor = list()
-    _cls_tensor = list()
-    _img_tensor = list()
-    for b in batch:
-        _box_tensor.append(b['bbox'])
-        _cls_tensor.append(b['cls'])
-        _img_tensor.append(b['img'])
-
-    img_tensor = torch.stack(_img_tensor,0)
-    #box_tensor = torch.stack(_box_tensor,0)
-    #wh_tensor = torch.stack(_wh_tensor,1)
-    #cls_tensor = torch.stack(_cls_tensor,1)
-    #box_tensor = np.vstack(i['bbox'].reshape(1,i['bbox'].shape[0],i['bbox'].shape[1]) for i in batch)
-    #cls_tensor = np.vstack(i['cls'].reshape(1,i['cls'].shape[0]) for i in batch)
-    #wh_tensor =  torch.stack(_wh_tensor,1)
-    return img_tensor, _box_tensor, _cls_tensor
 
 def collate_fn(batch):
     return tuple(zip(*batch))
 
-def train(cfg_param):
+def train(cfg_param = None, using_gpus = None):
     train_data = Yolodata(train=True, transform=None, cfg_param = cfg_param)
     train_loader = DataLoader(train_data, batch_size=cfg_param['batch'], num_workers=4, pin_memory=True, drop_last=True, shuffle=True, collate_fn=collate_fn)
 
     model = DarkNet53(args.cfg, is_train=True)
+    
+    #Set the device what you use, GPU or CPU
+    for i in using_gpus:
+        print("GPU{} free memory : ", get_memory_free_MiB(i))
+        if get_memory_free_MiB(i) < 20000:
+            print("GPU is already used now, Exit process")
+            sys.exit(1)
+    if len(using_gpus) == 1:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        torch.cuda.set_device(using_gpus[0])
+        model = torch.nn.DataParallel(model, device_ids=using_gpus)
+        model = model.cuda()
+    elif len(using_gpus) == 0:
+        if torch.cuda.is_available():
+            model = model.cuda()
+        else:
+            print("Disable to use GPU. Exit process")
+            device = torch.device("cpu")
+            model = model.to(device)
+    elif len(using_gpus) > 1:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = torch.nn.DataParallel(model, device_ids=using_gpus)
+        model = model.cuda()
+        model.to(f'cuda:{model.device_ids[0]}')
 
     checkpoint = None
     if args.checkpoint is not None:
@@ -67,22 +78,16 @@ def train(cfg_param):
         checkpoint = torch.load(args.checkpoint)
         model.load_state_dict(checkpoint['model_state_dict'])
 
-    if args.gpu == 0:
-        device = torch.device("cpu")
-    else:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
-
-    summary.summary(model, input_size=(3, 416, 416), device='cuda')
-    x_test = torch.randn(2,3,416,416, requires_grad=True).to(device)
-    torch.onnx.export(model,x_test,"yolov3.onnx",export_params=True, opset_version=11, input_names=['input'],output_names=['output'] )
+    summary.summary(model, input_size=(3, cfg_param["in_width"], cfg_param["in_height"]), device='cuda')
+    x_test = torch.randn(2, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
+    torch.onnx.export(model.module, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
     
     torch_writer = SummaryWriter("./output")
-    trainer = Trainer(model, train_loader, device, cfg_param, checkpoint, torch_writer = torch_writer)
+    trainer = Trainer(model.module, train_loader, device, cfg_param, checkpoint, torch_writer = torch_writer)
     
     trainer.run()
 
-def test(cfg_param):
+def test(cfg_param = None, using_gpus = None):
     print("test")
 
     eval_data = Yolodata(train=True, transform=None, cfg_param = cfg_param)
@@ -94,7 +99,7 @@ def test(cfg_param):
         checkpoint = torch.load(args.checkpoint)
         model.load_state_dict(checkpoint['model_state_dict'])
 
-    if args.gpu == 0:
+    if len(using_gpus) == 0:
         device = torch.device("cpu")
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -124,11 +129,15 @@ if __name__ == "__main__":
     args = parse_args()
     cfg_data = parse_model_config(args.cfg)
     cfg_param = get_hyperparam(cfg_data)
+    
+    # multi-gpu
+    print("GPUS : ", args.gpus)
+    using_gpus = [int(g) for g in args.gpus]
 
     if args.mode == "train":
-        train(cfg_param)
+        train(cfg_param, using_gpus)
     elif args.mode == "test":
-        test(cfg_param)
+        test(cfg_param, using_gpus)
     else:
         print("Unknown mode error")
 
