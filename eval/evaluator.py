@@ -32,7 +32,7 @@ class Evaluator:
                 best_box_list = non_max_sup(output_all, self.model.n_classes, conf_th=0.2, nms_th=0.4)
                 #print(best_box_list)
                 
-                self.evaluate_result(best_box_list, targets)
+                self.evaluate(best_box_list, targets)
                 
                 if i % 100 == 0:
                     print("-------{} th iter -----".format(i))
@@ -55,8 +55,10 @@ class Evaluator:
                 #     targets['bbox'][:,i,1] = targets['bbox'][:,i,1] * self.model.in_height
                 #     targets['bbox'][:,i,3] = targets['bbox'][:,i,3] * self.model.in_height
                 # drawBoxes(input_img.detach().cpu().numpy()[0,:,:,:], best_box_list, targets['bbox'][0], mode=1)
+        
+        
     
-    def evaluate_result(self, preds, targets):
+    def evaluate(self, preds, targets):
         if preds is None:
             return
         #move the preds and targets from device to cpu
@@ -109,7 +111,11 @@ class Evaluator:
             for p in range(pred_false[0].shape[0]):
                 self.fp[int(preds[pred_false[0][p],6])] += 1
         
-        #print("gt_matched: ", gt_matched, " gt_missed: ", gt_missed, " fp :", fp)  
-        # print("PRED", pred_mask)
-        # print("GT", gt_mask)
+    def evaluate_result(self):
+        
+        precision = self.tp / (self.tp + self.fp)
+        recall = self.tp / (self.tp + self.fn)
+        
+        return precision, recall
+
         
