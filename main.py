@@ -55,9 +55,9 @@ def _collate_fn(batch):
 def collate_fn(batch):
     return tuple(zip(*batch))
 
-def train(hparam):
-    train_data = Yolodata(train=True, transform=None)
-    train_loader = DataLoader(train_data, batch_size=hparam['batch'], num_workers=4, pin_memory=True, drop_last=True, shuffle=True, collate_fn=collate_fn)
+def train(cfg_param):
+    train_data = Yolodata(train=True, transform=None, cfg_param = cfg_param)
+    train_loader = DataLoader(train_data, batch_size=cfg_param['batch'], num_workers=4, pin_memory=True, drop_last=True, shuffle=True, collate_fn=collate_fn)
 
     model = DarkNet53(args.cfg, is_train=True)
 
@@ -78,14 +78,14 @@ def train(hparam):
     torch.onnx.export(model,x_test,"yolov3.onnx",export_params=True, opset_version=11, input_names=['input'],output_names=['output'] )
     
     torch_writer = SummaryWriter("./output")
-    trainer = Trainer(model, train_loader, device, hparam, checkpoint, torch_writer = torch_writer)
+    trainer = Trainer(model, train_loader, device, cfg_param, checkpoint, torch_writer = torch_writer)
     
     trainer.run()
 
-def test(hparam):
+def test(cfg_param):
     print("test")
 
-    eval_data = Yolodata(train=True, transform=None)
+    eval_data = Yolodata(train=True, transform=None, cfg_param = cfg_param)
     eval_loader = DataLoader(eval_data, batch_size=1, num_workers=4, pin_memory=True, drop_last=True, shuffle=True)
     
     model = DarkNet53(args.cfg, is_train=False)
@@ -106,7 +106,7 @@ def test(hparam):
     
     model = model.to(device)
     
-    evaluator = Evaluator(model, eval_loader, device, hparam)
+    evaluator = Evaluator(model, eval_loader, device, cfg_param)
     
     evaluator.run()
     
@@ -123,12 +123,12 @@ def test(hparam):
 if __name__ == "__main__":
     args = parse_args()
     cfg_data = parse_model_config(args.cfg)
-    hparam = get_hyperparam(cfg_data)
+    cfg_param = get_hyperparam(cfg_data)
 
     if args.mode == "train":
-        train(hparam)
+        train(cfg_param)
     elif args.mode == "test":
-        test(hparam)
+        test(cfg_param)
     else:
         print("Unknown mode error")
 
