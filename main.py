@@ -123,7 +123,7 @@ def test(cfg_param = None, using_gpus = None):
     
     torch.backends.cudnn.benchmark = True
 
-    evaluator = Evaluator(model, eval_loader, device, cfg_param)
+    evaluator = Evaluator(model, eval_data, eval_loader, device, cfg_param)
     
     evaluator.run()
 
