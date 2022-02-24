@@ -21,7 +21,7 @@ class Yolodata(Dataset):
     class_str = ['Car', 'Van', 'Truck', 'Pedestrian', 'Person_sitting', 'Cyclist', 'Tram', 'Misc', 'DontCare']
     num_class = 8
     img_data = []
-    def __init__(self, train=True, transform=None):
+    def __init__(self, train=True, transform=None, cfg_param=None):
         super(Yolodata, self).__init__()
         self.train = train
         self.transform = transform
@@ -43,7 +43,7 @@ class Yolodata(Dataset):
                 img_data.append(i)
         print("data len : {}".format(len(img_data)))
         self.img_data = img_data
-        self.resize = tf.Resize([416,416])
+        self.resize = tf.Resize([cfg_param['in_width'],cfg_param['in_height']])
     
     def __getitem__(self, index):
         img_path = self.file_dir + self.img_data[index]
