@@ -50,6 +50,8 @@ tensorboard
 tensorboardX
 
 torchsummary
+
+pynvml
 ```
 
 -------------------
