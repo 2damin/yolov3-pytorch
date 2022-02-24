@@ -61,13 +61,15 @@ pynvml
 If training,
 
 ```{r, engine='bash', count_lines}
-python main.py --mode train --cfg ./cfg/yolov3.cfg --gpu 0(or 1) --checkpoint ${saved_checkpoint_path}
+(single gpu) python main.py --mode train --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
+
+(multi gpu) python main.py --mode train --cfg ./cfg/yolov3.cfg --gpus 0 1 2 3 --checkpoint ${saved_checkpoint_path}
 ```
 
 If test,
 
 ```{r, engine='bash', count_lines}
-python main.py --mode test --cfg ./cfg/yolov3.cfg --gpu 0(or 1) --checkpoint ${saved_checkpoint_path}
+python main.py --mode test --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
 ```
 
 ### option
