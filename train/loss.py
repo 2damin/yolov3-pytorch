@@ -8,6 +8,7 @@ class YoloLoss(nn.Module):
     
     def __init__(self, device, num_class):
         super(YoloLoss, self).__init__()
+        self.device = device
         self.mseloss = nn.MSELoss().to(device)
         self.bceloss = nn.BCELoss().to(device)
         self.softmax = nn.Softmax(dim=1).to(device)
@@ -42,9 +43,9 @@ class YoloLoss(nn.Module):
                                                                in_w, in_h,
                                                                yl.ignore_thresh)
                 #noobj_mask : if target_box is fitting well with anchor, the target is ignore when calculate no_obj confidence loss
-                mask, noobj_mask = mask.cuda(), noobj_mask.cuda()
-                tx, ty, tw, th = tx.cuda(), ty.cuda(), tw.cuda(), th.cuda()
-                tconf, tcls = tconf.cuda(), tcls.cuda()
+                mask, noobj_mask = mask.to(self.device), noobj_mask.to(self.device)
+                tx, ty, tw, th = tx.to(self.device), ty.to(self.device), tw.to(self.device), th.to(self.device)
+                tconf, tcls = tconf.to(self.device), tcls.to(self.device)
                 #loss
                 loss_x = self.bceloss(x * mask, tx * mask)
                 loss_y = self.bceloss(y * mask, ty * mask)
@@ -153,7 +154,7 @@ class YoloLoss(nn.Module):
 
     def forward(self, out, positive_pred, negative_pred, _cls_gt, bboxes_gt, batch_idx):
         #negative pred loss
-        obj_gt_neg = torch.zeros(negative_pred.shape[0], dtype=torch.float32).cuda()
+        obj_gt_neg = torch.zeros(negative_pred.shape[0], dtype=torch.float32).to(self.device)
         #objness loss
         loss = 0
         for i, neg in enumerate(negative_pred):
@@ -161,7 +162,7 @@ class YoloLoss(nn.Module):
         print(loss)
 
         #make one hot vector of class_gt
-        cls_gt = torch.zeros(len(_cls_gt), self.num_class, dtype=torch.float32).cuda()
+        cls_gt = torch.zeros(len(_cls_gt), self.num_class, dtype=torch.float32).to(self.device)
         cls_gt = cls_gt.scatter_(1, _cls_gt.unsqueeze(1), 1.)
 
         #positive pred loss
@@ -172,7 +173,7 @@ class YoloLoss(nn.Module):
                 continue
             exist_pos = True
             #objness loss
-            obj_gt_pos = torch.ones(len(pos), dtype=torch.float32).cuda()
+            obj_gt_pos = torch.ones(len(pos), dtype=torch.float32).to(self.device)
             #loss += self.bceloss(out[pos[0]][batch_idx, pos[1], pos[2], pos[3] * (self.num_class + 5)], obj_gt_pos)#1 * (1 - sigmoid(out[batch_idx,p, 0]))**2
             #class loss
             for i, p in enumerate(pos):
