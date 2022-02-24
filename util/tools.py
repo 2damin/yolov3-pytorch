@@ -201,14 +201,24 @@ def get_hyperparam(cfg):
             lr_policy = c['policy']
             steps = [int(x) for x in c['steps'].split(',')]
             scales = [float(x) for x in c['scales'].split(',')]
+            in_width = int(c['width'])
+            in_height = int(c['height'])
 
-            return {'batch':batch, 'subdivision':subdivision,
-                    'momentum':momentum, 'decay':decay,
-                    'saturation':saturation, 'hue':hue,
-                    'exposure':exposure, 'lr':lr,
-                    'burn_in':burn_in, 'max_batch':max_batch,
-                    'lr_policy':lr_policy, 'steps':steps,
-                    'scales':scales}
+            return {'batch':batch,
+                    'subdivision':subdivision,
+                    'momentum':momentum,
+                    'decay':decay,
+                    'saturation':saturation,
+                    'hue':hue,
+                    'exposure':exposure,
+                    'lr':lr,
+                    'burn_in':burn_in,
+                    'max_batch':max_batch,
+                    'lr_policy':lr_policy,
+                    'steps':steps,
+                    'scales':scales,
+                    'in_width':in_width,
+                    'in_height':in_height}
         else:
             continue
         
