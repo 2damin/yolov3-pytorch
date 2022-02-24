@@ -60,8 +60,7 @@ class Trainer:
             input_img = torch.stack(_input_img,0)
             input_wh = [input_img.shape[3], input_img.shape[2]]
 
-            if self.device == torch.device('cuda'):
-                input_img = input_img.cuda()
+            input_img = input_img.to(self.device)
 
             start_time = time.time()
 
