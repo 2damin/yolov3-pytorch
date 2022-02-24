@@ -1,18 +1,22 @@
 import torch
-import numpy
+import numpy as np
 import PIL, time
 from train.loss import *
+import csv
+import pandas as pd
 
 class Evaluator:
-    def __init__(self, model, eval_loader, device, hparam):
+    def __init__(self, model, eval_data, eval_loader, device, hparam):
         self.model = model
+        self.class_list = eval_data.class_str
         self.eval_loader = eval_loader
         self.device = device
         self.yololoss = YoloLoss(self.device, self.model.n_classes)
-        self.gt_total = torch.zeros(self.model.n_classes, dtype=torch.int64)
-        self.tp = torch.zeros(self.model.n_classes, dtype=torch.int64) #tp
-        self.fn = torch.zeros(self.model.n_classes, dtype=torch.int64) #fn
-        self.fp = torch.zeros(self.model.n_classes, dtype=torch.int64) #fp
+        self.gt_total = torch.zeros(self.model.n_classes, dtype=torch.int64, requires_grad=False)
+        self.tp = torch.zeros(self.model.n_classes, dtype=torch.int64, requires_grad=False) #tp
+        self.fn = torch.zeros(self.model.n_classes, dtype=torch.int64, requires_grad=False) #fn
+        self.fp = torch.zeros(self.model.n_classes, dtype=torch.int64, requires_grad=False) #fp
+        self.preds = None
 
     def run(self):
         for i, batch in enumerate(self.eval_loader):
@@ -36,9 +40,9 @@ class Evaluator:
                 
                 if i % 100 == 0:
                     print("-------{} th iter -----".format(i))
-                    print("gt_pos : ", self.tp)
-                    print("gt_neg : ", self.fn)
-                    print("fp : ", self.fp)
+                
+                if i == 100:
+                    break
                 
                 if best_box_list is None:
                     continue
@@ -56,6 +60,8 @@ class Evaluator:
                 #     targets['bbox'][:,i,3] = targets['bbox'][:,i,3] * self.model.in_height
                 # drawBoxes(input_img.detach().cpu().numpy()[0,:,:,:], best_box_list, targets['bbox'][0], mode=1)
         
+        #Calculate map, recall, tp, fp, fn.
+        self.evaluate_result()
         
     
     def evaluate(self, preds, targets):
@@ -100,6 +106,7 @@ class Evaluator:
         gt_matched = (gt_mask == 1).nonzero(as_tuple=True)
         gt_missed = (gt_mask == 0).nonzero(as_tuple=True)
         pred_false = (pred_mask == 1).nonzero(as_tuple=True)
+        pred_true = (pred_mask == 0).nonzero(as_tuple=True)
 
         if gt_matched[0].nelement() != 0:
             for p in range(gt_matched[0].shape[0]):
@@ -110,12 +117,32 @@ class Evaluator:
         if pred_false[0].nelement() != 0:
             for p in range(pred_false[0].shape[0]):
                 self.fp[int(preds[pred_false[0][p],6])] += 1
+        if pred_true[0].nelement() != 0:
+            for p in range(pred_true[0].shape[0]):
+                if self.preds is None:
+                    self.preds = preds[pred_true[0][p]].reshape(1,-1)
+                else:
+                    self.preds = torch.cat((self.preds, preds[pred_true[0][p]].reshape(1,-1)), dim = 0)
+                    
         
     def evaluate_result(self):
+        precision = self.tp / (self.tp + self.fp + 1e-6)
+        recall = self.tp / (self.tp + self.fn + 1e-6)
+        precision = precision.detach().numpy().tolist()
+        recall = recall.detach().numpy().tolist()
+        tp = self.tp.detach().numpy().tolist()
+        fp = self.fp.detach().numpy().tolist()
+        fn = self.fn.detach().numpy().tolist()
         
-        precision = self.tp / (self.tp + self.fp)
-        recall = self.tp / (self.tp + self.fn)
+        self.class_list.remove('DontCare')
+        data = {'name' : ['precision', 'recall', 'TP', 'FP', 'FN']}
         
-        return precision, recall
+        for i, cls in enumerate(self.class_list):
+            data[cls] = [precision[i], recall[i], tp[i], fp[i], fn[i]]
+        
+        df = pd.DataFrame(data)
+        print(df)
+        
+        df.to_csv('./evaluation.csv')
 
         
