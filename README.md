@@ -37,7 +37,7 @@ I recommend Nvidia NGC docker image. [link](https://catalog.ngc.nvidia.com/orgs/
 ## Dependency
 
 ```
-python3
+python >= 3.6
 
 Numpy
 
@@ -85,7 +85,7 @@ python main.py --mode test --cfg ./cfg/yolov3.cfg --gpu 0(or 1) --checkpoint ${s
 Using Tensorboard,
 
 ```{r, engine='bash', count_lines}
-tensorboard --logdir=./output --port 6006
+tensorboard --logdir=./output --port 8888
 ```
 
 -------------------------
