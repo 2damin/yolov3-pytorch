@@ -25,7 +25,7 @@ def get_memory_free_MiB(gpu_index):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="YOLOV3-PYTORCH")
-    parser.add_argument("--gpus", type=int, nargs='+', default=[0], help="List of device ids.")
+    parser.add_argument("--gpus", type=int, nargs='+', default=[], help="List of device ids.")
     parser.add_argument('--mode', dest='mode', help="train or test",
                         default=None, type=str)
     parser.add_argument('--cfg', dest='cfg', help="model config path",
@@ -55,36 +55,46 @@ def train(cfg_param = None, using_gpus = None):
             print("GPU is already used now, Exit process")
             sys.exit(1)
     if len(using_gpus) == 1:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cuda:"+str(using_gpus[0]) if torch.cuda.is_available() else "cpu")
         torch.cuda.set_device(using_gpus[0])
         model = torch.nn.DataParallel(model, device_ids=using_gpus)
         model = model.cuda()
     elif len(using_gpus) == 0:
-        if torch.cuda.is_available():
-            model = model.cuda()
-        else:
-            print("Disable to use GPU. Exit process")
-            device = torch.device("cpu")
-            model = model.to(device)
+        print("Disable to use GPU. Exit process")
+        device = torch.device("cpu")
+        model = model.to(device)
     elif len(using_gpus) > 1:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print("using_gpus : {}".format(using_gpus))
+        device = torch.device("cuda:"+str(using_gpus[0]) if torch.cuda.is_available() else "cpu")
         model = torch.nn.DataParallel(model, device_ids=using_gpus)
         model = model.cuda()
         model.to(f'cuda:{model.device_ids[0]}')
 
+    torch.backends.cudnn.benchmark = True
+
+    #If checkpoint is existed, load the previous checkpoint.
     checkpoint = None
     if args.checkpoint is not None:
         print("load pretrained model ", args.checkpoint)
         checkpoint = torch.load(args.checkpoint)
         model.load_state_dict(checkpoint['model_state_dict'])
 
-    summary.summary(model, input_size=(3, cfg_param["in_width"], cfg_param["in_height"]), device='cuda')
-    x_test = torch.randn(2, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
-    torch.onnx.export(model.module, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
+    #Pre-check the model structure and size of parameters
+    summary.summary(model, input_size=(3, cfg_param["in_width"], cfg_param["in_height"]), device='cuda' if device == torch.device('cuda') else 'cpu')
     
+    #Setting the torch log directory to use tensorboard
     torch_writer = SummaryWriter("./output")
-    trainer = Trainer(model.module, train_loader, device, cfg_param, checkpoint, torch_writer = torch_writer)
     
+    if len(using_gpus) > 0:
+        yolo_model = model.module
+    else:
+        yolo_model = model
+    #Export Yolo model from pytorch to onnx format. yolov3.onnx
+    x_test = torch.randn(2, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
+    #torch.onnx.export(yolo_model, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
+    
+    #Set trainer
+    trainer = Trainer(yolo_model, train_loader, device, cfg_param, checkpoint, torch_writer = torch_writer)
     trainer.run()
 
 def test(cfg_param = None, using_gpus = None):
@@ -111,19 +121,12 @@ def test(cfg_param = None, using_gpus = None):
     
     model = model.to(device)
     
+    torch.backends.cudnn.benchmark = True
+
     evaluator = Evaluator(model, eval_loader, device, cfg_param)
     
     evaluator.run()
-    
-    # summary.summary(backbone, input_size=(3, 416, 416), device='cuda')
 
-    # for i, batch in enumerate(eval_loader):
-    #     input_img = batch['image']
-    #     b, c, h, w = input_img.size()
-    #     #input_ = torch.cat([input_image.unsqueeze(1)])
-    #     input_ = input_img.view(-1, c, h, w)
-    #     out = backbone(input_)
-        
         
 if __name__ == "__main__":
     args = parse_args()
