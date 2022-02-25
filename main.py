@@ -6,13 +6,14 @@ from glob import glob
 import warnings
 
 from eval.evaluator import Evaluator
-warnings.filterwarnings("error")
+#warnings.filterwarnings("error")
 from torch.utils.data.dataloader import DataLoader
 import torchsummary as summary
 from model.yolov3 import DarkNet53
 from model.loss import celoss
 from dataloader.yolodata import *
 from train.trainer import Trainer
+from dataloader.data_transforms import *
 import torch.utils as utils
 from tensorboardX import SummaryWriter
 import pynvml
@@ -22,6 +23,12 @@ def get_memory_free_MiB(gpu_index):
     handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
     mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
     return mem_info.free // 1024 ** 2
+
+def get_memory_total_MiB(gpu_index):
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
+    mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    return mem_info.total // 1024 ** 2
 
 def parse_args():
     parser = argparse.ArgumentParser(description="YOLOV3-PYTORCH")
@@ -43,16 +50,18 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 def train(cfg_param = None, using_gpus = None):
-    train_data = Yolodata(train=True, transform=None, cfg_param = cfg_param)
+    
+    transforms = get_transformations(cfg_param)
+    train_data = Yolodata(train=True, transform=transforms, cfg_param = cfg_param)
     train_loader = DataLoader(train_data, batch_size=cfg_param['batch'], num_workers=4, pin_memory=True, drop_last=True, shuffle=True, collate_fn=collate_fn)
 
     model = DarkNet53(args.cfg, is_train=True)
     
     #Set the device what you use, GPU or CPU
     for i in using_gpus:
-        print("GPU{} free memory : ", get_memory_free_MiB(i))
-        if get_memory_free_MiB(i) < 20000:
-            print("GPU is already used now, Exit process")
+        print("GPU total memory : {} free memory : {}".format(get_memory_total_MiB(i), get_memory_free_MiB(i)))
+        if get_memory_free_MiB(i) / get_memory_total_MiB(i) < 0.5:
+            print("Avaliable memory is {}%, GPU is already used now, Exit process".format(get_memory_free_MiB(i) / get_memory_total_MiB(i)))
             sys.exit(1)
     if len(using_gpus) == 1:
         device = torch.device("cuda:"+str(using_gpus[0]) if torch.cuda.is_available() else "cpu")
