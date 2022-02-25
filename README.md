@@ -52,6 +52,8 @@ tensorboardX
 torchsummary
 
 pynvml
+
+imgaug
 ```
 
 -------------------
