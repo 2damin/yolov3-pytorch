@@ -106,7 +106,7 @@ def softmax(a):
     exp_a = np.exp(a - np.max(a))
     return exp_a / exp_a.sum()
 
-def drawBox(_img, boxes, mode = 0):
+def drawBox(_img, boxes = None, mode = 0):
     _img = _img * 255
     #img dim is [C,H,W]
     if _img.shape[0] == 3:
@@ -116,14 +116,16 @@ def drawBox(_img, boxes, mode = 0):
         _img_data = np.array(_img, dtype=np.uint8)
         img_data = Image.fromarray(_img_data, 'L')
     draw = ImageDraw.Draw(img_data)
-    for box in boxes:
-        if (box[4] + box[5]) / 2 < 0.5:
-            continue
-        
-        if mode == 0:
-            draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=(0,255,0), width=1)
-        else:
-            draw.rectangle((box[0],box[1],box[2],box[3]), outline=(0,255,0), width=1)
+    
+    if boxes is not None:
+        for box in boxes:
+            # if (box[4] + box[5]) / 2 < 0.5:
+            #     continue
+            
+            if mode == 0:
+                draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=(0,255,0), width=1)
+            else:
+                draw.rectangle((box[0],box[1],box[2],box[3]), outline=(0,255,0), width=1)
     plt.imshow(img_data)
     plt.show()
 
