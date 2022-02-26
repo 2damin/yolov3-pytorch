@@ -20,13 +20,13 @@ class Yolodata(Dataset):
     valid_dir = "C:\\data\\kitti_dataset\\testing"
     valid_txt = "valid.txt"
     class_str = ['Car', 'Van', 'Truck', 'Pedestrian', 'Person_sitting', 'Cyclist', 'Tram', 'Misc', 'DontCare']
-    num_class = 8
+    num_class = None
     img_data = []
     def __init__(self, is_train=True, transform=None, cfg_param=None):
         super(Yolodata, self).__init__()
         self.is_train = is_train
         self.transform = transform
-
+        self.num_class = cfg_param['class']
         if self.is_train:
             self.file_dir = self.train_dir+"\\Images\\"
             self.file_txt = self.train_dir+"\\ImageSets\\"+self.train_txt
@@ -51,6 +51,7 @@ class Yolodata(Dataset):
 
         with open(img_path, 'rb') as f:
             img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             #img = Image.open(f)
             img_origin_h, img_origin_w = img.shape[:2]
             #img = self.resize(img)
@@ -63,8 +64,6 @@ class Yolodata(Dataset):
             with open(anno_path, 'r') as f:
                 for line in f.readlines():
                     gt_data = [ l for l in line.split(" ")]
-                    # if gt_data[0] == "DontCare":
-                    #     continue
                     cls.append(self.class_str.index(gt_data[0]))
                     bbox.append([float(i) for i in gt_data[4:8]]) #[xmin, ymin, xmax, ymax]
 
@@ -84,12 +83,14 @@ class Yolodata(Dataset):
 
             target = {}
             if bbox.size == 0:
-                target['bbox'] = torch.FloatTensor(np.zeros((1,4), np.float32))
-                target['cls'] = torch.tensor(np.zeros(1, np.int32),dtype=torch.int64)
+                target['bbox'] = None #torch.FloatTensor(np.zeros((1,4), np.float32))
+                target['cls'] = None #torch.tensor(np.zeros(1, np.int32),dtype=torch.int64)
+                target['path'] = anno_path
             else:
                 #target['bbox'] = torch.FloatTensor(np.array(bbox))
                 target['bbox'] = sample['label']
                 target['cls'] = torch.tensor(np.array(cls),dtype=torch.int64)
+                target['path'] = anno_path
 
             #return torch.div(torch.tensor(np.transpose(np.array(img, dtype=float),(2,0,1)),dtype=torch.float32),255), target
             return sample['image'], target
