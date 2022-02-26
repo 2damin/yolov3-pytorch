@@ -33,7 +33,7 @@ class Evaluator:
                 output_list = self.yololoss.compute_loss(output, targets = None, input_wh = input_wh, yolo_layers = self.model.yolo_layers)
 
                 output_all = torch.cat(output_list, dim=1)
-                best_box_list = non_max_sup(output_all, self.model.n_classes, conf_th=0.2, nms_th=0.4)
+                best_box_list = non_max_sup(output_all, self.model.n_classes, conf_th=0.5, nms_th=0.4)
                 #print(best_box_list)
                 
                 self.evaluate(best_box_list, targets)
