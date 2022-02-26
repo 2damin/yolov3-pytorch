@@ -106,7 +106,7 @@ def softmax(a):
     exp_a = np.exp(a - np.max(a))
     return exp_a / exp_a.sum()
 
-def drawBox(_img, boxes = None, mode = 0):
+def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0)):
     _img = _img * 255
     #img dim is [C,H,W]
     if _img.shape[0] == 3:
@@ -117,15 +117,20 @@ def drawBox(_img, boxes = None, mode = 0):
         img_data = Image.fromarray(_img_data, 'L')
     draw = ImageDraw.Draw(img_data)
     
+    if cls is None:
+        cls = torch.zeros((boxes.shape[0]))
+    
     if boxes is not None:
-        for box in boxes:
+        for i, box in enumerate(boxes):
             # if (box[4] + box[5]) / 2 < 0.5:
             #     continue
-            
+            if cls[i] == 8:
+                color = (255,0,0)
             if mode == 0:
-                draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=(0,255,0), width=1)
+                draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=color, width=1)
             else:
-                draw.rectangle((box[0],box[1],box[2],box[3]), outline=(0,255,0), width=1)
+                draw.rectangle((box[0],box[1],box[2],box[3]), outline=color, width=1)
+            color = (0,255,0)
     plt.imshow(img_data)
     plt.show()
 
@@ -205,6 +210,7 @@ def get_hyperparam(cfg):
             scales = [float(x) for x in c['scales'].split(',')]
             in_width = int(c['width'])
             in_height = int(c['height'])
+            _class = int(c['class'])
 
             return {'batch':batch,
                     'subdivision':subdivision,
@@ -220,7 +226,8 @@ def get_hyperparam(cfg):
                     'steps':steps,
                     'scales':scales,
                     'in_width':in_width,
-                    'in_height':in_height}
+                    'in_height':in_height,
+                    'class':_class}
         else:
             continue
         
