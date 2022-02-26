@@ -41,9 +41,6 @@ class Evaluator:
                 if i % 100 == 0:
                     print("-------{} th iter -----".format(i))
                 
-                if i == 100:
-                    break
-                
                 if best_box_list is None:
                     continue
                 
