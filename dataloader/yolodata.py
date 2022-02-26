@@ -1,6 +1,5 @@
 import torch
 from torch.utils.data import Dataset
-from torchvision import transforms as tf
 import os,sys
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import matplotlib
@@ -9,6 +8,8 @@ from PIL import Image
 import matplotlib.patches as patches
 import numpy as np
 from util.tools import *
+from . import data_transforms
+import cv2
 
 class Yolodata(Dataset):
     file_dir = ""
@@ -21,12 +22,12 @@ class Yolodata(Dataset):
     class_str = ['Car', 'Van', 'Truck', 'Pedestrian', 'Person_sitting', 'Cyclist', 'Tram', 'Misc', 'DontCare']
     num_class = 8
     img_data = []
-    def __init__(self, train=True, transform=None, cfg_param=None):
+    def __init__(self, is_train=True, transform=None, cfg_param=None):
         super(Yolodata, self).__init__()
-        self.train = train
+        self.is_train = is_train
         self.transform = transform
 
-        if self.train:
+        if self.is_train:
             self.file_dir = self.train_dir+"\\Images\\"
             self.file_txt = self.train_dir+"\\ImageSets\\"+self.train_txt
             self.anno_dir = self.train_dir+"\\Annotation\\"
@@ -43,17 +44,18 @@ class Yolodata(Dataset):
                 img_data.append(i)
         print("data len : {}".format(len(img_data)))
         self.img_data = img_data
-        self.resize = tf.Resize([cfg_param['in_width'],cfg_param['in_height']])
+        #self.resize = tf.Resize([cfg_param['in_width'],cfg_param['in_height']])
     
     def __getitem__(self, index):
         img_path = self.file_dir + self.img_data[index]
 
         with open(img_path, 'rb') as f:
-            img = Image.open(f)
-            img_w, img_h = img.width, img.height
-            img = self.resize(img)
+            img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+            #img = Image.open(f)
+            img_origin_h, img_origin_w = img.shape[:2]
+            #img = self.resize(img)
 
-        if self.train:
+        if self.is_train:
             anno_path = self.anno_dir + self.img_data[index].replace(".png", ".txt")
             bbox = []
             cls = []
@@ -69,25 +71,34 @@ class Yolodata(Dataset):
             #Change gt_box format (minmax -> cxcywh)
             bbox = np.array(bbox)
             for i, box in enumerate(bbox):
-                box[0] = box[0] / img_w
-                box[1] = box[1] / img_h
-                box[2] = box[2] / img_w
-                box[3] = box[3] / img_h
-                #resizeBox(box, [img_w, img_h], [img.width, img.height])
+                box[0] = box[0] / img_origin_w
+                box[1] = box[1] / img_origin_h
+                box[2] = box[2] / img_origin_w
+                box[3] = box[3] / img_origin_h
                 minmax2cxcy(box)
+
+            sample = {}
+            sample['image'] = img
+            sample['label'] = bbox
+            sample = self.transform(sample)
 
             target = {}
             if bbox.size == 0:
                 target['bbox'] = torch.FloatTensor(np.zeros((1,4), np.float32))
                 target['cls'] = torch.tensor(np.zeros(1, np.int32),dtype=torch.int64)
             else:
-                target['bbox'] = torch.FloatTensor(np.array(bbox))
+                #target['bbox'] = torch.FloatTensor(np.array(bbox))
+                target['bbox'] = sample['label']
                 target['cls'] = torch.tensor(np.array(cls),dtype=torch.int64)
 
-            #out = {'img':torch.div(torch.tensor(np.transpose(np.array(img),(2,0,1)),dtype=torch.float32),255), 'target':target}
-            return torch.div(torch.tensor(np.transpose(np.array(img, dtype=float),(2,0,1)),dtype=torch.float32),255), target
+            #return torch.div(torch.tensor(np.transpose(np.array(img, dtype=float),(2,0,1)),dtype=torch.float32),255), target
+            return sample['image'], target
         else:
-            return torch.div(torch.tensor(np.transpose(np.array(img),(2,0,1)),dtype=torch.float32),255), {}
+            sample = {}
+            sample['image'] = img
+            sample['label'] = []
+            sample = self.transform(sample)
+            return sample['image'], {}
 
 
     def __len__(self):
