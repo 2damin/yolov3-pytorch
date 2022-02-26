@@ -13,6 +13,7 @@ from model.yolov3 import DarkNet53
 from model.loss import celoss
 from dataloader.yolodata import *
 from train.trainer import Trainer
+from demo.demo import Demo
 from dataloader.data_transforms import *
 import torch.utils as utils
 from tensorboardX import SummaryWriter
@@ -86,6 +87,9 @@ def train(cfg_param = None, using_gpus = None):
     if args.checkpoint is not None:
         print("load pretrained model ", args.checkpoint)
         checkpoint = torch.load(args.checkpoint)
+        for key, value in checkpoint['model_state_dict'].copy().items():
+            new_key = "module." + key
+            checkpoint['model_state_dict'][new_key] = checkpoint['model_state_dict'].pop(key)
         model.load_state_dict(checkpoint['model_state_dict'])
 
     #Pre-check the model structure and size of parameters
@@ -139,8 +143,8 @@ def eval(cfg_param = None, using_gpus = None):
 def demo(cfg_param = None, using_gpus = None):
     print("demo")
     transforms = get_transformations(cfg_param, is_train = False)    
-    eval_data = Yolodata(is_train = False, transform = transforms, cfg_param = cfg_param)
-    eval_loader = DataLoader(eval_data, batch_size = 1, num_workers = 4, pin_memory = True, drop_last = True, shuffle = True)
+    data = Yolodata(is_train = False, transform = transforms, cfg_param = cfg_param)
+    demo_loader = DataLoader(data, batch_size = 1, num_workers = 4, pin_memory = True, drop_last = False, shuffle = False)
     
     model = DarkNet53(args.cfg, is_train = False)
     if args.checkpoint is not None:
@@ -162,9 +166,9 @@ def demo(cfg_param = None, using_gpus = None):
     
     torch.backends.cudnn.benchmark = True
 
-    evaluator = Evaluator(model, eval_data, eval_loader, device, cfg_param)
+    demo = Demo(model, data, demo_loader, device)
     
-    evaluator.run()
+    demo.run()
 
         
 if __name__ == "__main__":
