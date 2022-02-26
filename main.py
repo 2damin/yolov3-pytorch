@@ -51,8 +51,8 @@ def collate_fn(batch):
 
 def train(cfg_param = None, using_gpus = None):
     
-    transforms = get_transformations(cfg_param)
-    train_data = Yolodata(train=True, transform=transforms, cfg_param = cfg_param)
+    transforms = get_transformations(cfg_param, is_train = True)
+    train_data = Yolodata(is_train=True, transform=transforms, cfg_param = cfg_param)
     train_loader = DataLoader(train_data, batch_size=cfg_param['batch'], num_workers=4, pin_memory=True, drop_last=True, shuffle=True, collate_fn=collate_fn)
 
     model = DarkNet53(args.cfg, is_train=True)
@@ -106,13 +106,43 @@ def train(cfg_param = None, using_gpus = None):
     trainer = Trainer(yolo_model, train_loader, device, cfg_param, checkpoint, torch_writer = torch_writer)
     trainer.run()
 
-def test(cfg_param = None, using_gpus = None):
-    print("test")
-
-    eval_data = Yolodata(train=True, transform=None, cfg_param = cfg_param)
-    eval_loader = DataLoader(eval_data, batch_size=1, num_workers=4, pin_memory=True, drop_last=True, shuffle=True)
+def eval(cfg_param = None, using_gpus = None):
+    print("evaluation")
+    transforms = get_transformations(cfg_param, is_train = False)    
+    eval_data = Yolodata(is_train = True, transform = transforms, cfg_param = cfg_param)
+    eval_loader = DataLoader(eval_data, batch_size = 1, num_workers = 4, pin_memory = True, drop_last = True, shuffle = True)
     
-    model = DarkNet53(args.cfg, is_train=False)
+    model = DarkNet53(args.cfg, is_train = False)
+    if args.checkpoint is not None:
+        print("load pretrained model ", args.checkpoint)
+        checkpoint = torch.load(args.checkpoint)
+        model.load_state_dict(checkpoint['model_state_dict'])
+
+    if len(using_gpus) == 0:
+        device = torch.device("cpu")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+    if device == torch.device('cuda'):
+        print("device is cuda")
+    elif device == torch.device('cpu'):
+        print('device is cpu')
+    
+    model = model.to(device)
+    
+    torch.backends.cudnn.benchmark = True
+
+    evaluator = Evaluator(model, eval_data, eval_loader, device, cfg_param)
+    
+    evaluator.run()
+    
+def demo(cfg_param = None, using_gpus = None):
+    print("demo")
+    transforms = get_transformations(cfg_param, is_train = False)    
+    eval_data = Yolodata(is_train = False, transform = transforms, cfg_param = cfg_param)
+    eval_loader = DataLoader(eval_data, batch_size = 1, num_workers = 4, pin_memory = True, drop_last = True, shuffle = True)
+    
+    model = DarkNet53(args.cfg, is_train = False)
     if args.checkpoint is not None:
         print("load pretrained model ", args.checkpoint)
         checkpoint = torch.load(args.checkpoint)
@@ -148,8 +178,10 @@ if __name__ == "__main__":
 
     if args.mode == "train":
         train(cfg_param, using_gpus)
-    elif args.mode == "test":
-        test(cfg_param, using_gpus)
+    elif args.mode == "eval":
+        eval(cfg_param, using_gpus)
+    elif args.mode == "demo":
+        demo(cfg_param, using_gpus)
     else:
         print("Unknown mode error")
 
