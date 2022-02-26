@@ -53,7 +53,10 @@ class YoloLoss(nn.Module):
                 loss_h = self.mseloss(h * mask, th * mask)
                 loss_conf = self.bceloss(conf * mask, tconf) + \
                     0.5 * self.bceloss(conf * noobj_mask, noobj_mask * 0.0)
-                loss_cls = self.bceloss(pred_cls[mask==1], tcls[mask==1])
+                if tcls[mask==1].nelement() == 0 and pred_cls[mask==1].nelement() == 0:
+                    loss_cls = torch.zeros(1).to(self.device)
+                else:
+                    loss_cls = self.bceloss(pred_cls[mask==1], tcls[mask==1])
                 #total_loss
                 loss = loss_x * self.lambda_xy + loss_y * self.lambda_xy + \
                     loss_w * self.lambda_wh + loss_h * self.lambda_wh + \
@@ -103,9 +106,14 @@ class YoloLoss(nn.Module):
         for b in range(bs):
             target_box = targets[b]['bbox']
             target_cls = targets[b]['cls']
+            
+            #if target object dont exist
+            if target_box is None and target_cls is None:
+                continue
+            
             for t in range(target_box.shape[0]):
-                if target_box.sum() == 0:
-                    print(target_box, target_cls)
+                #ignore Dontcare class
+                if int(target_cls[t]) == 8:
                     continue
                 #get box position relative to grid(anchor)
                 gx = target_box[t,0] * in_w
@@ -140,15 +148,9 @@ class YoloLoss(nn.Module):
                 th[b, best_box, gj, gi] = np.log(gh/anchors[best_box][1] + 1e-16)
                 #objectness
                 tconf[b, best_box, gj, gi] = 1
-                
-                #ignore class
-                if int(target_cls[t]) == 8:
-                    mask[b, best_box, gj, gi] = 0
-                    noobj_mask[b,anc_iou > ignore_thresh, gj, gi] = 0
-                    tconf[b, best_box, gj, gi] = 0
-                else:
-                    #class confidence
-                    tcls[b, best_box, gj, gi, int(target_cls[t])] = 1
+
+                #class confidence
+                tcls[b, best_box, gj, gi, int(target_cls[t])] = 1
         return mask, noobj_mask, tx, ty, tw, th, tconf, tcls
                 
 
