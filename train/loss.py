@@ -64,9 +64,9 @@ class YoloLoss(nn.Module):
                 FloatTensor = torch.cuda.FloatTensor if x.is_cuda else torch.FloatTensor
                 LongTensor = torch.cuda.LongTensor if x.is_cuda else torch.LongTensor
                 #calculate offsets of each grid
-                grid_x = torch.linspace(0, in_w-1, in_w).repeat(in_w, 1).repeat(
+                grid_x = torch.linspace(0, in_w-1, in_w).repeat(in_h, 1).repeat(
                     batch * len(anchors), 1, 1).view(x.shape).type(FloatTensor)
-                grid_y = torch.linspace(0,in_h-1,in_h).repeat(in_h, 1).t().repeat(
+                grid_y = torch.linspace(0,in_h-1,in_h).repeat(in_w, 1).t().repeat(
                     batch * len(anchors), 1, 1).view(y.shape).type(FloatTensor)
                 #calculate anchor width height
                 anchor_w = FloatTensor(anchors).index_select(1, LongTensor([0]))
