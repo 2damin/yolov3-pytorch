@@ -61,13 +61,12 @@ class Trainer:
             input_wh = [input_img.shape[3], input_img.shape[2]]
             
             # print("input_img : ", input_img.shape, "target_bbox : ", targets[0]['bbox'].shape, "targets_cls : ", targets[0]['cls'].shape)
-            # print(targets[0]['bbox'])
             # draw_boxes = targets[0]['bbox']
             # draw_boxes[:,0] *= input_wh[0]
             # draw_boxes[:,2] *= input_wh[0]
             # draw_boxes[:,1] *= input_wh[1]
             # draw_boxes[:,3] *= input_wh[1]
-            # drawBox(input_img.detach().numpy()[0], draw_boxes)
+            # drawBox(input_img.detach().numpy()[0], draw_boxes, cls = targets[0]['cls'])
 
             input_img = input_img.to(self.device)
 
