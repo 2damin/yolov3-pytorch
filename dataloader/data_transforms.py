@@ -7,11 +7,15 @@ from torchvision import transforms as tf
 import imgaug as ia
 from imgaug import augmenters as iaa
 
-def get_transformations(cfg_param):
+def get_transformations(cfg_param = None, is_train = None):
     data_transform = Compose()
-    data_transform.add(ImageBaseAug())
-    data_transform.add(ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])))
-    data_transform.add(ToTensor())
+    if is_train:
+        data_transform.add(ImageBaseAug())
+        data_transform.add(ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])))
+        data_transform.add(ToTensor())
+    elif not is_train:
+        data_transform.add(ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])))
+        data_transform.add(ToTensor())   
     return data_transform
 
 class Compose(object):
