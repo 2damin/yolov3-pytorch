@@ -68,21 +68,27 @@ If training,
 (multi gpu) python main.py --mode train --cfg ./cfg/yolov3.cfg --gpus 0 1 2 3 --checkpoint ${saved_checkpoint_path}
 ```
 
+If evaluate,
+
+```{r, engine='bash', count_lines}
+python main.py --mode eval --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
+```
+
 If test,
 
 ```{r, engine='bash', count_lines}
-python main.py --mode test --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
+python main.py --mode demo --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
 ```
 
 ### option
 
---mode : train/test.
+--mode : train/eval/demo.
 
 --cfg : the path of model.cfg.
 
 --gpu : if you use GPU, set 1. If you use CPU, set 0.
 
---checkpoint : the path of saved model checkpoint. If you want to load the previous train, or if you test(evaluate) the model.
+--checkpoint (optional) : the path of saved model checkpoint. Use it when you want to load the previous train, or you want to test(evaluate) the model.
 
 
 
