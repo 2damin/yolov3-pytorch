@@ -51,7 +51,7 @@ class YoloLoss(nn.Module):
                 loss_y = self.bceloss(y * mask, ty * mask)
                 loss_w = self.mseloss(w * mask, tw * mask)
                 loss_h = self.mseloss(h * mask, th * mask)
-                loss_conf = self.bceloss(conf * mask, tconf) + \
+                loss_conf = self.bceloss(conf * mask, mask) + \
                     0.5 * self.bceloss(conf * noobj_mask, noobj_mask * 0.0)
                 if tcls[mask==1].nelement() == 0 and pred_cls[mask==1].nelement() == 0:
                     loss_cls = torch.zeros(1).to(self.device)
