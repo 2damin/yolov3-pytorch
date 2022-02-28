@@ -166,7 +166,7 @@ def demo(cfg_param = None, using_gpus = None):
     
     torch.backends.cudnn.benchmark = True
 
-    demo = Demo(model, data, demo_loader, device)
+    demo = Demo(model, data, demo_loader, device, cfg_param)
     
     demo.run()
 

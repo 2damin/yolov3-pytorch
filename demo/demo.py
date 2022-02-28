@@ -3,12 +3,12 @@ import time
 from train.loss import *
 
 class Demo:
-    def __init__(self, model, data, data_loader, device):
+    def __init__(self, model, data, data_loader, device, hparam):
         self.model = model
         self.class_list = data.class_str
         self.data_loader = data_loader
         self.device = device
-        self.yololoss = YoloLoss(self.device, self.model.n_classes)
+        self.yololoss = YoloLoss(self.device, self.model.n_classes, hparam['ignore_cls'])
         self.preds = None
 
     def run(self):
