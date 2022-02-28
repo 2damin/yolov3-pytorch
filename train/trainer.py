@@ -19,7 +19,7 @@ class Trainer:
         self.epoch = 0
         self.iter = 0
         self.torch_writer = torch_writer
-        self.yololoss = YoloLoss(self.device, self.model.n_classes)
+        self.yololoss = YoloLoss(self.device, self.model.n_classes, hparam['ignore_cls'])
         self.optimizer = optim.SGD(model.parameters(), lr=hparam['lr'], momentum=hparam['momentum'])
         
         if checkpoint is not None:
@@ -81,8 +81,10 @@ class Trainer:
             for _, loss in enumerate(losses):
                 for k, l in enumerate(loss):
                     total_loss[k].append(l)
+                    #print(loss_name[k], " : ", l)
+
             total_loss = [sum(l) for l in total_loss]
-                
+            
             loss = total_loss[0]
             loss.backward()
             self.optimizer.step()

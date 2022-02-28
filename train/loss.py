@@ -6,7 +6,7 @@ import sys
 
 class YoloLoss(nn.Module):
     
-    def __init__(self, device, num_class):
+    def __init__(self, device, num_class, ignore_cls):
         super(YoloLoss, self).__init__()
         self.device = device
         self.mseloss = nn.MSELoss().to(device)
@@ -17,6 +17,7 @@ class YoloLoss(nn.Module):
         self.lambda_wh = 2.5
         self.lambda_conf = 1.0
         self.lambda_cls = 1.0
+        self.ignore_cls = ignore_cls
         
     def compute_loss(self, input, targets = None, input_wh = None, yolo_layers = None):
         output_list = []
@@ -46,7 +47,7 @@ class YoloLoss(nn.Module):
                 mask, noobj_mask = mask.to(self.device), noobj_mask.to(self.device)
                 tx, ty, tw, th = tx.to(self.device), ty.to(self.device), tw.to(self.device), th.to(self.device)
                 tconf, tcls = tconf.to(self.device), tcls.to(self.device)
-                #loss
+                
                 loss_x = self.bceloss(x * mask, tx * mask)
                 loss_y = self.bceloss(y * mask, ty * mask)
                 loss_w = self.mseloss(w * mask, tw * mask)
@@ -113,7 +114,7 @@ class YoloLoss(nn.Module):
             
             for t in range(target_box.shape[0]):
                 #ignore Dontcare class
-                if int(target_cls[t]) == 8:
+                if int(target_cls[t]) == self.ignore_cls:
                     continue
                 #get box position relative to grid(anchor)
                 gx = target_box[t,0] * in_w
