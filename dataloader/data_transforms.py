@@ -1,3 +1,4 @@
+from msilib.schema import Class
 import numpy as np
 import cv2
 import torch
@@ -7,10 +8,13 @@ from torchvision import transforms as tf
 import imgaug as ia
 from imgaug import augmenters as iaa
 
+from util.tools import minmax2cxcy
+
 def get_transformations(cfg_param = None, is_train = None):
     data_transform = Compose()
     if is_train:
         data_transform.add(ImageBaseAug())
+        data_transform.add(AffineAug())
         data_transform.add(ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])))
         data_transform.add(ToTensor())
     elif not is_train:
@@ -92,13 +96,15 @@ class ResizeImage(object):
         self.interpolation = interpolation
 
     def __call__(self, sample):
-        image, label = sample['image'], sample['label']
+        image, label = sample['image'], sample['label'] 
+        #resize image
         image = cv2.resize(image, self.new_size, interpolation=self.interpolation)
+
         return {'image': image, 'label': label}
 
 class ImageBaseAug(object):
     def __init__(self):
-        sometimes = lambda aug: iaa.Sometimes(0.5, aug)
+        sometimes = lambda aug: iaa.Sometimes(0.3, aug)
         self.seq = iaa.Sequential(
             [
                 # Blur each image with varying strength using
@@ -106,8 +112,8 @@ class ImageBaseAug(object):
                 # average/uniform blur (kernel size between 2x2 and 7x7)
                 # median blur (kernel size between 3x3 and 11x11).
                 iaa.OneOf([
-                    iaa.GaussianBlur((0, 3.0)),
-                    iaa.AverageBlur(k=(2, 7)),
+                    iaa.GaussianBlur((0, 2.0)),
+                    iaa.AverageBlur(k=(2, 5)),
                     iaa.MedianBlur(k=(3, 11)),
                 ]),
                 # Sharpen each image, overlay the result with the original
@@ -117,11 +123,11 @@ class ImageBaseAug(object):
                 # Add gaussian noise to some images.
                 sometimes(iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05*255), per_channel=0.5)),
                 # Add a value of -5 to 5 to each pixel.
-                sometimes(iaa.Add((-5, 5), per_channel=0.5)),
+                sometimes(iaa.Add((-2, 2), per_channel=0.5)),
                 # Change brightness of images (80-120% of original value).
-                sometimes(iaa.Multiply((0.8, 1.2), per_channel=0.5)),
+                sometimes(iaa.Multiply((0.9, 1.1), per_channel=0.5)),
                 # Improve or worsen the contrast of images.
-                sometimes(iaa.contrast.LinearContrast((0.5, 2.0), per_channel=0.5)),
+                # sometimes(iaa.contrast.LinearContrast((0.5, 2.0), per_channel=0.5)),
             ],
             # do all of the above augmentations in random order
             random_order=True
@@ -132,3 +138,39 @@ class ImageBaseAug(object):
         image, label = sample['image'], sample['label']
         image = seq_det.augment_images([image])[0]
         return {'image': image, 'label': label}
+
+class AffineAug(object):
+    def __init__(self):
+        sometimes = lambda aug: iaa.Sometimes(0.4, aug)
+        self.seq = iaa.Sequential(
+            [
+                sometimes(iaa.Affine(scale = 0.8)),
+                sometimes(iaa.Affine(translate_percent=0.1))
+            ],
+            random_order=True
+        )
+    
+    def __call__(self, sample):
+        seq_det = self.seq.to_deterministic()
+        image, label = sample['image'], sample['label']
+        ia_bboxes = []
+        for box in label:
+            ia_bboxes.append(ia.BoundingBox(x1=box[0], y1=box[1], x2=box[2], y2=box[3]))
+        label_ia =ia.BoundingBoxesOnImage(ia_bboxes, shape=image.shape)
+        image = seq_det.augment_images([image])[0]
+        label_ia = seq_det.augment_bounding_boxes([label_ia])[0]
+
+
+        for i, bbox in enumerate(label_ia):
+            sample['label'][i] = np.array([bbox.x1, bbox.y1, bbox.x2, bbox.y2])
+        #normalize bbox points
+        img_origin_h, img_origin_w = image.shape[:2]
+        for i, l in enumerate(sample['label']):
+            sample['label'][i][0] = l[0] / img_origin_w
+            sample['label'][i][1] = l[1] / img_origin_h
+            sample['label'][i][2] = l[2] / img_origin_w
+            sample['label'][i][3] = l[3] / img_origin_h
+            sample['label'][i] = np.clip(sample['label'][i],0,1)
+            minmax2cxcy(sample['label'][i])
+
+        return {'image': image, 'label': sample['label']}
