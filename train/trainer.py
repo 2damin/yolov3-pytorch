@@ -60,14 +60,31 @@ class Trainer:
             input_img = torch.stack(_input_img,0)
             input_wh = [input_img.shape[3], input_img.shape[2]]
             
+            # for b in range(len(targets)):
+            #     target_box = targets[b]['bbox']
+            #     target_cls = targets[b]['cls']
+            #     target_occ = targets[b]['occ']
+            #     for t in range(target_box.shape[0]):
+            #         print(target_box[t])
+            #         target_box[t,0] *= input_wh[0]
+            #         target_box[t,2] *= input_wh[0]
+            #         target_box[t,1] *= input_wh[1]
+            #         target_box[t,3] *= input_wh[1]
+            #         drawBox(input_img.detach().numpy()[b], target_box, cls = targets[b]['cls'], text = None)
+            # continue
+            
             # print("input_img : ", input_img.shape, "target_bbox : ", targets[0]['bbox'].shape, "targets_cls : ", targets[0]['cls'].shape)
             # draw_boxes = targets[0]['bbox']
             # draw_boxes[:,0] *= input_wh[0]
             # draw_boxes[:,2] *= input_wh[0]
             # draw_boxes[:,1] *= input_wh[1]
             # draw_boxes[:,3] *= input_wh[1]
-            # drawBox(input_img.detach().numpy()[0], draw_boxes, cls = targets[0]['cls'])
-
+            # text_show = []
+            # for j in range(targets[0]['occ'].shape[0]):
+            #     text_show.append("o" + str(targets[0]['occ'][j].item()) + " t" + str(targets[0]['trunc'][j].item()))
+            # drawBox(input_img.detach().numpy()[0], draw_boxes, cls = targets[0]['cls'], text = text_show)
+            # continue
+            
             input_img = input_img.to(self.device)
 
             start_time = time.time()
