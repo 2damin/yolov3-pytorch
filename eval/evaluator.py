@@ -11,7 +11,7 @@ class Evaluator:
         self.class_list = eval_data.class_str
         self.eval_loader = eval_loader
         self.device = device
-        self.yololoss = YoloLoss(self.device, self.model.n_classes)
+        self.yololoss = YoloLoss(self.device, self.model.n_classes, hparam['ignore_cls'])
         self.gt_total = torch.zeros(self.model.n_classes, dtype=torch.int64, requires_grad=False)
         self.tp = torch.zeros(self.model.n_classes, dtype=torch.int64, requires_grad=False) #tp
         self.fn = torch.zeros(self.model.n_classes, dtype=torch.int64, requires_grad=False) #fn
