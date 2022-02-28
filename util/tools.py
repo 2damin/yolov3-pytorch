@@ -106,7 +106,7 @@ def softmax(a):
     exp_a = np.exp(a - np.max(a))
     return exp_a / exp_a.sum()
 
-def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0)):
+def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0), text = None):
     _img = _img * 255
     #img dim is [C,H,W]
     if _img.shape[0] == 3:
@@ -130,6 +130,8 @@ def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0)):
                 draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=color, width=1)
             else:
                 draw.rectangle((box[0],box[1],box[2],box[3]), outline=color, width=1)
+            if text is not None:
+                draw.text((box[0],box[1]), text[i], (237, 230, 211))
             color = (0,255,0)
     plt.imshow(img_data)
     plt.show()
@@ -211,6 +213,7 @@ def get_hyperparam(cfg):
             in_width = int(c['width'])
             in_height = int(c['height'])
             _class = int(c['class'])
+            ignore_cls = int(c['ignore_cls'])
 
             return {'batch':batch,
                     'subdivision':subdivision,
@@ -227,11 +230,12 @@ def get_hyperparam(cfg):
                     'scales':scales,
                     'in_width':in_width,
                     'in_height':in_height,
-                    'class':_class}
+                    'class':_class,
+                    'ignore_cls':ignore_cls}
         else:
             continue
         
-def non_max_sup(input, num_classes, conf_th = 0.5, nms_th = 0.4):
+def non_max_sup(input, num_classes, conf_th = 0.5, nms_th = 0.4, objectness = True):
     
     box = input.new(input.shape)
     box[:,:,0] = input[:,:,0] - input[:,:,2] / 2
@@ -243,12 +247,21 @@ def non_max_sup(input, num_classes, conf_th = 0.5, nms_th = 0.4):
     #output = [None for _ in range(len(input))]
     output = None
     for i, pred in enumerate(input):
-        conf_mask = (pred[:,4] >= conf_th).squeeze()
+        #get the highst score & class of all pred
+        class_conf_all, _ = torch.max(pred[:,5:5+num_classes], 1, keepdim=True)
+        if objectness:
+            pred_score = (pred[:,4] * 0.8 + class_conf_all.reshape(-1) * 0.2)
+        else:
+            pred_score = class_conf_all
+
+        conf_mask = (pred_score >= conf_th).squeeze()
         pred = pred[conf_mask]
         if not pred.size(0):
             continue
-        #get the highst score & class 
+
+        #get the highst score & class of masked pred
         class_conf, class_pred = torch.max(pred[:,5:5+num_classes], 1, keepdim=True)
+        
         #Convert predictions type [x,y,w,h,obj,class_conf,class_pred]
         detections = torch.cat((pred[:,:5], class_conf.float(), class_pred.float()),1)
         
