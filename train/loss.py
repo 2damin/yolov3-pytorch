@@ -107,14 +107,15 @@ class YoloLoss(nn.Module):
         for b in range(bs):
             target_box = targets[b]['bbox']
             target_cls = targets[b]['cls']
+            target_occ = targets[b]['occ']
             
             #if target object dont exist
             if target_box is None and target_cls is None:
                 continue
             
             for t in range(target_box.shape[0]):
-                #ignore Dontcare class
-                if int(target_cls[t]) == self.ignore_cls:
+                #ignore Dontcare objects and occluded objects
+                if int(target_cls[t]) == self.ignore_cls or target_occ[t] > 1:
                     continue
                 #get box position relative to grid(anchor)
                 gx = target_box[t,0] * in_w
@@ -124,7 +125,6 @@ class YoloLoss(nn.Module):
                 #get index of grid
                 gi = int(gx)
                 gj = int(gy)
-                
                 #make gt_box shape
                 gt_box = torch.FloatTensor(np.array([0,0,gw,gh])).unsqueeze(0)
                 #make box shape of each anchor 
