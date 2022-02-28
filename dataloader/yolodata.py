@@ -58,38 +58,42 @@ class Yolodata(Dataset):
 
         if self.is_train:
             anno_path = self.anno_dir + self.img_data[index].replace(".png", ".txt")
+            
+            
             bbox = []
             cls = []
-
+            occ = []
+            trunc = []
             with open(anno_path, 'r') as f:
                 for line in f.readlines():
                     gt_data = [ l for l in line.split(" ")]
                     cls.append(self.class_str.index(gt_data[0]))
                     bbox.append([float(i) for i in gt_data[4:8]]) #[xmin, ymin, xmax, ymax]
+                    trunc.append(float(gt_data[1]))
+                    occ.append(int(gt_data[2]))
 
-            #Change gt_box format (minmax -> cxcywh)
+            #Change gt_box type
             bbox = np.array(bbox)
-            for i, box in enumerate(bbox):
-                box[0] = box[0] / img_origin_w
-                box[1] = box[1] / img_origin_h
-                box[2] = box[2] / img_origin_w
-                box[3] = box[3] / img_origin_h
-                minmax2cxcy(box)
 
             sample = {}
             sample['image'] = img
             sample['label'] = bbox
+            #data augmentation
             sample = self.transform(sample)
 
             target = {}
             if bbox.size == 0:
                 target['bbox'] = None #torch.FloatTensor(np.zeros((1,4), np.float32))
                 target['cls'] = None #torch.tensor(np.zeros(1, np.int32),dtype=torch.int64)
+                target['trunc'] = None
+                target['occ'] = None
                 target['path'] = anno_path
             else:
                 #target['bbox'] = torch.FloatTensor(np.array(bbox))
                 target['bbox'] = sample['label']
                 target['cls'] = torch.tensor(np.array(cls),dtype=torch.int64)
+                target['trunc'] = torch.tensor(np.array(trunc),dtype=torch.float32)
+                target['occ'] = torch.tensor(np.array(occ),dtype=torch.int64)
                 target['path'] = anno_path
 
             #return torch.div(torch.tensor(np.transpose(np.array(img, dtype=float),(2,0,1)),dtype=torch.float32),255), target
