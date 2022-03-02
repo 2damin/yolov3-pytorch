@@ -145,7 +145,7 @@ class AffineAug(object):
         self.seq = iaa.Sequential(
             [
                 sometimes(iaa.Affine(scale = 0.8)),
-                sometimes(iaa.Affine(translate_percent=0.1))
+                # sometimes(iaa.Affine(translate_percent=0.1))
             ],
             random_order=True
         )
