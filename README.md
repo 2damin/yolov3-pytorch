@@ -54,6 +54,10 @@ torchsummary
 pynvml
 
 imgaug
+
+onnx
+
+onnxruntime
 ```
 
 -------------------
