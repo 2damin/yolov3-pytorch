@@ -3,11 +3,11 @@ import torch
 import torch.optim as optim
 import torch.profiler
 import torch.utils.data
-import torchvision.transforms as T
+import torchvision.transforms as transforms
 
 from util.tools import *
 from train.loss import *
-
+from train.scheduler import *
 
 class Trainer:
     def __init__(self, model, train_loader, device, hparam, checkpoint = None, torch_writer = None):
@@ -27,10 +27,16 @@ class Trainer:
             self.epoch = checkpoint['epoch']
             self.iter = checkpoint['iteration']
 
-        self.lr_scheduler = optim.lr_scheduler.StepLR(
-            self.optimizer,
-            step_size = 25,
-            gamma = 0.9)
+        # self.lr_scheduler = optim.lr_scheduler.StepLR(
+        #     self.optimizer,
+        #     step_size = 50,
+        #     gamma = 0.9)
+
+        scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self.max_batch-hparam['burn_in'])
+        self.lr_scheduler = LearningRateWarmUP(optimizer=self.optimizer,
+                                               warmup_iteration=hparam['burn_in'],
+                                               target_lr=hparam['lr'],
+                                               after_scheduler=scheduler_cosine)
 
     def run(self):
         # with torch.profiler.profile(
@@ -41,14 +47,14 @@ class Trainer:
         while True:
             loss = self.run_iter()
             self.epoch += 1
-            if self.epoch % 10 == 0:
+            if self.epoch % 1 == 0:
                 checkpoint_path = os.path.join("./output", "model_epoch" + str(self.epoch) + ".pth")
                 torch.save({'epoch': self.epoch,
                             'iteration': self.iter,
                             'model_state_dict': self.model.state_dict(),
                             'optimizer_state_dict': self.optimizer.state_dict(),
                             'loss': loss}, checkpoint_path)
-            self.lr_scheduler.step()
+            
             if self.max_batch <= self.iter:
                 break
 
@@ -65,7 +71,7 @@ class Trainer:
             #     target_cls = targets[b]['cls']
             #     target_occ = targets[b]['occ']
             #     for t in range(target_box.shape[0]):
-            #         print(target_box[t])
+            #         print(target_box[t], input_wh)
             #         target_box[t,0] *= input_wh[0]
             #         target_box[t,2] *= input_wh[0]
             #         target_box[t,1] *= input_wh[1]
@@ -73,47 +79,62 @@ class Trainer:
             #         drawBox(input_img.detach().numpy()[b], target_box, cls = targets[b]['cls'], text = None)
             # continue
             
-            # print("input_img : ", input_img.shape, "target_bbox : ", targets[0]['bbox'].shape, "targets_cls : ", targets[0]['cls'].shape)
-            # draw_boxes = targets[0]['bbox']
-            # draw_boxes[:,0] *= input_wh[0]
-            # draw_boxes[:,2] *= input_wh[0]
-            # draw_boxes[:,1] *= input_wh[1]
-            # draw_boxes[:,3] *= input_wh[1]
-            # text_show = []
-            # for j in range(targets[0]['occ'].shape[0]):
-            #     text_show.append("o" + str(targets[0]['occ'][j].item()) + " t" + str(targets[0]['trunc'][j].item()))
-            # drawBox(input_img.detach().numpy()[0], draw_boxes, cls = targets[0]['cls'], text = text_show)
-            # continue
-            
             input_img = input_img.to(self.device)
 
             start_time = time.time()
 
-            self.optimizer.zero_grad()
             output = self.model(input_img)
             
-            losses = self.yololoss.compute_loss(output, targets, input_wh, self.model.yolo_layers)
-            loss_name = ['total', 'x', 'y', 'w', 'h', 'conf', 'cls']
+            losses = self.yololoss.compute_loss(input = output,
+                                                targets = targets,
+                                                nw = self.model.in_width,
+                                                nh = self.model.in_height,
+                                                yolo_layers = self.model.yolo_layers,
+                                                tmp_img = input_img)
+
+            loss_name = ['total', 'x', 'y', 'w', 'h', 'conf', 'cls', 'iou']
             total_loss = [[] for _ in loss_name]
             for _, loss in enumerate(losses):
                 for k, l in enumerate(loss):
                     total_loss[k].append(l)
                     #print(loss_name[k], " : ", l)
-
+                    
             total_loss = [sum(l) for l in total_loss]
+                    
+            if total_loss[0] > 1000:
+                for b in range(len(targets)):
+                    target_box = targets[b]['bbox']
+                    target_cls = targets[b]['cls']
+                    target_occ = targets[b]['occ']
+                    print(targets[b]['path'])
+                    for t in range(target_box.shape[0]):
+                        print(target_box[t], input_wh)
+                        target_box[t,0] *= input_wh[0]
+                        target_box[t,2] *= input_wh[0]
+                        target_box[t,1] *= input_wh[1]
+                        target_box[t,3] *= input_wh[1]
+                        drawBox(input_img.detach().cpu().numpy()[b], target_box, cls = targets[b]['cls'], text = None)
+                sys.exit(1)
             
-            loss = total_loss[0]
-            loss.backward()
-            self.optimizer.step()
-            self.iter += 1
-            
-            if i % 100 == 0:
-                duration = float(time.time() - start_time)
-                latency = self.model.batch / duration
-                print("epoch {} iter {} lr {} , loss : {}".format(self.epoch, self.iter, get_lr(self.optimizer), loss.item()))
-                self.torch_writer.add_scalar("lr", get_lr(self.optimizer), self.iter)
-                self.torch_writer.add_scalar('example/sec', latency, self.iter)
-                for ln, ls in zip(loss_name, total_loss):
-                    self.torch_writer.add_scalar(ln, ls, self.iter)
+            #if nan values in loss calculation, skip backprop
+            if len(losses) == 0:
+                print("WARNING: non-finite loss, skip backprop")
+            else:
+                print("{} iter ".format(self.iter), total_loss)
+                loss = total_loss[0]
+                loss.backward()
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+                self.lr_scheduler.step(self.iter)
+                self.iter += 1
+
+                if i % 100 == 0:
+                    duration = float(time.time() - start_time)
+                    latency = self.model.batch / duration
+                    print("epoch {} iter {} lr {} , loss : {}".format(self.epoch, self.iter, get_lr(self.optimizer), loss.item()))
+                    self.torch_writer.add_scalar("lr", get_lr(self.optimizer), self.iter)
+                    self.torch_writer.add_scalar('example/sec', latency, self.iter)
+                    for ln, ls in zip(loss_name, total_loss):
+                        self.torch_writer.add_scalar(ln, ls, self.iter)
             
         return loss.item()
