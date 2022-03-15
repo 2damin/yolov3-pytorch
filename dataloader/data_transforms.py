@@ -96,11 +96,20 @@ class ResizeImage(object):
         self.interpolation = interpolation
 
     def __call__(self, sample):
-        image, label = sample['image'], sample['label'] 
+        image, label = sample['image'], sample['label']
+        #normalize bbox points
+        img_origin_h, img_origin_w = image.shape[:2]
+        for i, l in enumerate(label):
+            sample['label'][i][0] = l[0] / img_origin_w
+            sample['label'][i][1] = l[1] / img_origin_h
+            sample['label'][i][2] = l[2] / img_origin_w
+            sample['label'][i][3] = l[3] / img_origin_h
+            sample['label'][i] = np.clip(sample['label'][i],0,1)
+            minmax2cxcy(sample['label'][i])
         #resize image
         image = cv2.resize(image, self.new_size, interpolation=self.interpolation)
 
-        return {'image': image, 'label': label}
+        return {'image': image, 'label': sample['label']}
 
 class ImageBaseAug(object):
     def __init__(self):
@@ -163,14 +172,5 @@ class AffineAug(object):
 
         for i, bbox in enumerate(label_ia):
             sample['label'][i] = np.array([bbox.x1, bbox.y1, bbox.x2, bbox.y2])
-        #normalize bbox points
-        img_origin_h, img_origin_w = image.shape[:2]
-        for i, l in enumerate(sample['label']):
-            sample['label'][i][0] = l[0] / img_origin_w
-            sample['label'][i][1] = l[1] / img_origin_h
-            sample['label'][i][2] = l[2] / img_origin_w
-            sample['label'][i][3] = l[3] / img_origin_h
-            sample['label'][i] = np.clip(sample['label'][i],0,1)
-            minmax2cxcy(sample['label'][i])
 
         return {'image': image, 'label': sample['label']}
