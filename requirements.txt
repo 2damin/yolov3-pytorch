@@ -1,0 +1,9 @@
+numpy
+torch
+torchvision
+tensorboard
+tensorboardX
+torchsummary
+pynvml
+imgaug
+onnx
