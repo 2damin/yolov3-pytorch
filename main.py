@@ -1,4 +1,6 @@
 import os,sys
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 #import numpy as np
 import torch
 import argparse
@@ -19,6 +21,8 @@ import torch.utils as utils
 from tensorboardX import SummaryWriter
 import pynvml
 
+import onnx,onnxruntime
+
 def get_memory_free_MiB(gpu_index):
     pynvml.nvmlInit()
     handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
@@ -38,7 +42,9 @@ def parse_args():
                         default=None, type=str)
     parser.add_argument('--cfg', dest='cfg', help="model config path",
                         default=None, type=str)
-    parser.add_argument('--checkpoint', dest='checkpoint', help = "the path of pre-trained model",
+    parser.add_argument('--checkpoint', dest='checkpoint', help = "the path of checkpoint",
+                        default=None, type=str)
+    parser.add_argument('--pretrained', dest='pretrained', help = "the path of pre-trained model",
                         default=None, type=str)
 
     if len(sys.argv) == 1:
@@ -57,6 +63,10 @@ def train(cfg_param = None, using_gpus = None):
     train_loader = DataLoader(train_data, batch_size=cfg_param['batch'], num_workers=4, pin_memory=True, drop_last=True, shuffle=True, collate_fn=collate_fn)
 
     model = DarkNet53(args.cfg, is_train=True)
+    
+    if args.pretrained is not None:
+        print("load pretrained model")
+        model.load_darknet_weights(args.pretrained)
     
     #Set the device what you use, GPU or CPU
     for i in using_gpus:
@@ -113,14 +123,10 @@ def train(cfg_param = None, using_gpus = None):
 def eval(cfg_param = None, using_gpus = None):
     print("evaluation")
     transforms = get_transformations(cfg_param, is_train = False)    
-    eval_data = Yolodata(is_train = True, transform = transforms, cfg_param = cfg_param)
-    eval_loader = DataLoader(eval_data, batch_size = 1, num_workers = 4, pin_memory = True, drop_last = True, shuffle = True)
+    eval_data = Yolodata(is_train = False, transform = transforms, cfg_param = cfg_param)
+    eval_loader = DataLoader(eval_data, batch_size = 1, num_workers = 0, pin_memory = True, drop_last = False, shuffle = False, collate_fn=collate_fn)
     
     model = DarkNet53(args.cfg, is_train = False)
-    if args.checkpoint is not None:
-        print("load pretrained model ", args.checkpoint)
-        checkpoint = torch.load(args.checkpoint)
-        model.load_state_dict(checkpoint['model_state_dict'])
 
     if len(using_gpus) == 0:
         device = torch.device("cpu")
@@ -134,7 +140,36 @@ def eval(cfg_param = None, using_gpus = None):
     
     model = model.to(device)
     
+    model.eval()
+    
     torch.backends.cudnn.benchmark = True
+    
+    if args.checkpoint is not None:
+        print("load pretrained model ", args.checkpoint)
+        checkpoint = torch.load(args.checkpoint)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+    #Export Yolo model from pytorch to onnx format. yolov3.onnx
+    x_test = torch.randn(1, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
+    torch.onnx.export(model, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
+
+    def to_numpy(tensor):
+        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+
+    ort_session = onnxruntime.InferenceSession("./yolov3.onnx")
+
+    # ONNX 런타임에서 계산된 결과값
+    ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x_test)}
+    
+    ort_outs = ort_session.run(None, ort_inputs)
+    
+    torch_outs = model(x_test)
+    
+    print("torch output : ", len(torch_outs), " ", torch_outs[0].shape)
+    print("onnx out: ", len(ort_outs), ort_outs[0].shape)
+    torch_np_outs = to_numpy(torch_outs[2])
+    # ONNX 런타임과 PyTorch에서 연산된 결과값 비교
+    #np.testing.assert_allclose(torch_np_outs, ort_outs[2], rtol=1e-03, atol=1e-05)
 
     evaluator = Evaluator(model, eval_data, eval_loader, device, cfg_param)
     
