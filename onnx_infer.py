@@ -34,11 +34,6 @@ def main():
     ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x)}
     
     ort_outs = ort_session.run(None, ort_inputs)
-    
-    
-    # ONNX 런타임과 PyTorch에서 연산된 결과값 비교
-    #np.testing.assert_allclose(to_numpy(torch_out), ort_outs[0], rtol=1e-03, atol=1e-05)
-    
     print("out : ", ort_outs)
 
 if __name__ == "__main__":
