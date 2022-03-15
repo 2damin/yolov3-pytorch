@@ -12,6 +12,11 @@ def minmax2cxcy(box):
         cy = (box[1] + box[3]) / 2
         w = box[2] - box[0]
         h = box[3] - box[1]
+        
+        if cx - w/2 < 0 or cx + w/2 > 1:
+            w -= 0.001
+        if cy - h/2 < 0 or cy + h/2 > 1:
+            h -= 0.001
         box[0] = cx
         box[1] = cy
         box[2] = w
@@ -72,7 +77,7 @@ def convert_gt_box(box, yololayer):
         new_box[i,3] = torch.log(torch.div(box[i,3],yololayer.stride[1]))
     return new_box
     
-def iou(a, b, mode = 0):
+def iou(a, b, mode = 0, device = None):
     #mode 0 : cxcywh. mode 1 : minmax
     if mode == 0:
         a_x1, a_y1 = a[:,0]-a[:,2]/2, a[:,1]-a[:,3]/2
@@ -87,13 +92,50 @@ def iou(a, b, mode = 0):
     ymin = torch.max(a_y1, b_y1)
     ymax = torch.min(a_y2, b_y2)
     #get intersection area 
-    inter_area = torch.clamp(xmax - xmin, min=0) * \
-                 torch.clamp(ymax - ymin, min=0)
+    inter = (xmax - xmin).clamp(0) * (ymax - ymin).clamp(0)
     #get each box area
-    a_area = (a_x2 - a_x1 + 1) * (a_y2 - a_y1 + 1)
-    b_area = (b_x2 - b_x1 + 1) * (b_y2 - b_y1 + 1)
+    a_area = (a_x2 - a_x1) * (a_y2 - a_y1)
+    b_area = (b_x2 - b_x1) * (b_y2 - b_y1)
+    union = a_area + b_area - inter
     
-    return inter_area / (a_area + b_area - inter_area + 1e-6)
+    if device is not None:
+        iou = torch.zeros(b.shape[0]).to(device)
+    else:
+        iou = torch.zeros(b.shape[0])
+    iou[union > 1] = inter[union > 1] / union[union > 1]
+
+    return iou
+
+def bbox_iou(box1, box2, x1y1x2y2=True):
+    """
+    Returns the IoU of two bounding boxes
+    """
+    if not x1y1x2y2:
+        # Transform from center and width to exact coordinates
+        b1_x1, b1_x2 = box1[:, 0] - box1[:, 2] / 2, box1[:, 0] + box1[:, 2] / 2
+        b1_y1, b1_y2 = box1[:, 1] - box1[:, 3] / 2, box1[:, 1] + box1[:, 3] / 2
+        b2_x1, b2_x2 = box2[:, 0] - box2[:, 2] / 2, box2[:, 0] + box2[:, 2] / 2
+        b2_y1, b2_y2 = box2[:, 1] - box2[:, 3] / 2, box2[:, 1] + box2[:, 3] / 2
+    else:
+        # Get the coordinates of bounding boxes
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:,0], box1[:,1], box1[:,2], box1[:,3]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:,0], box2[:,1], box2[:,2], box2[:,3]
+
+    # get the corrdinates of the intersection rectangle
+    inter_rect_x1 =  torch.max(b1_x1, b2_x1)
+    inter_rect_y1 =  torch.max(b1_y1, b2_y1)
+    inter_rect_x2 =  torch.min(b1_x2, b2_x2)
+    inter_rect_y2 =  torch.min(b1_y2, b2_y2)
+    # Intersection area
+    inter_area =    torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * \
+                    torch.clamp(inter_rect_y2 - inter_rect_y1 + 1, min=0)
+    # Union Area
+    b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
+    b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
+
+    iou = inter_area / (b1_area + b2_area - inter_area + 1e-16)
+
+    return iou
 
 def sigmoid(a):
     a_shape = a.shape
@@ -106,7 +148,7 @@ def softmax(a):
     exp_a = np.exp(a - np.max(a))
     return exp_a / exp_a.sum()
 
-def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0), text = None):
+def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0)):
     _img = _img * 255
     #img dim is [C,H,W]
     if _img.shape[0] == 3:
@@ -124,15 +166,15 @@ def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0), text = 
         for i, box in enumerate(boxes):
             # if (box[4] + box[5]) / 2 < 0.5:
             #     continue
-            if cls[i] == 8:
-                color = (255,0,0)
+            # if cls[i] == 8:
+            #     color = (255,0,0)
+            # if i == 2:
+            #     color = (0,255,255)
             if mode == 0:
                 draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=color, width=1)
             else:
                 draw.rectangle((box[0],box[1],box[2],box[3]), outline=color, width=1)
-            if text is not None:
-                draw.text((box[0],box[1]), text[i], (237, 230, 211))
-            color = (0,255,0)
+            draw.text((box[0],box[1]), str(int(cls[i])), fill ="red")
     plt.imshow(img_data)
     plt.show()
 
@@ -235,24 +277,25 @@ def get_hyperparam(cfg):
         else:
             continue
         
-def non_max_sup(input, num_classes, conf_th = 0.5, nms_th = 0.4, objectness = True):
+def non_max_sup(input, num_classes, conf_th = 0.5, nms_th = 0.5, objectness = True):
     
     box = input.new(input.shape)
     box[:,:,0] = input[:,:,0] - input[:,:,2] / 2
     box[:,:,1] = input[:,:,1] - input[:,:,3] / 2
     box[:,:,2] = input[:,:,0] + input[:,:,2] / 2
     box[:,:,3] = input[:,:,1] + input[:,:,3] / 2
+    box[:,:,4:] = input[:,:,4:]
     input[:,:,:4] = box[:,:,:4]
     
     #output = [None for _ in range(len(input))]
     output = None
-    for i, pred in enumerate(input):
+    for i, pred in enumerate(box):
         #get the highst score & class of all pred
         class_conf_all, _ = torch.max(pred[:,5:5+num_classes], 1, keepdim=True)
         if objectness:
-            pred_score = (pred[:,4] * 0.8 + class_conf_all.reshape(-1) * 0.2)
+            pred_score = pred[:,4]
         else:
-            pred_score = class_conf_all
+            pred_score = class_conf_all * 0.3 + pred[:,4] * 0.7
 
         conf_mask = (pred_score >= conf_th).squeeze()
         pred = pred[conf_mask]
@@ -264,6 +307,8 @@ def non_max_sup(input, num_classes, conf_th = 0.5, nms_th = 0.4, objectness = Tr
         
         #Convert predictions type [x,y,w,h,obj,class_conf,class_pred]
         detections = torch.cat((pred[:,:5], class_conf.float(), class_pred.float()),1)
+        
+        device = detections.device
         
         unique_labels = detections[:,-1].cpu().unique()
         if input.is_cuda:
@@ -279,15 +324,15 @@ def non_max_sup(input, num_classes, conf_th = 0.5, nms_th = 0.4, objectness = Tr
             while detections_c.size(0):
                 #get detection with highest confidence
                 max_detections.append(detections_c[0].unsqueeze(0))
-                
+
                 if len(detections_c) == 1:
                     break
                 
                 #get IOUs for all boxes with lower conf
-                ious = iou(max_detections[-1], detections_c[1:])
+                ious = iou(max_detections[-1], detections_c[1:], device = device)
                 #remove detections iou >= nms threshold
                 detections_c = detections_c[1:][ious < nms_th]
-            
+
             max_detections = torch.cat(max_detections).data
             #update outputs
             output = max_detections if output is None else torch.cat((output, max_detections))
