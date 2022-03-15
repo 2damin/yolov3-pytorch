@@ -17,8 +17,8 @@ class Yolodata(Dataset):
     file_txt = ""
     train_dir = "C:\\data\\kitti_dataset\\training"
     train_txt = "train.txt"
-    valid_dir = "C:\\data\\kitti_dataset\\testing"
-    valid_txt = "valid.txt"
+    valid_dir = "C:\\data\\kitti_dataset\\eval"
+    valid_txt = "eval.txt"
     class_str = ['Car', 'Van', 'Truck', 'Pedestrian', 'Person_sitting', 'Cyclist', 'Tram', 'Misc', 'DontCare']
     num_class = None
     img_data = []
@@ -33,7 +33,8 @@ class Yolodata(Dataset):
             self.anno_dir = self.train_dir+"\\Annotation\\"
         else:
             self.file_dir = self.valid_dir+"\\Images\\"
-            self.file_txt = self.valid_dir+"\\ImageSets\\"+self.valid_txt  
+            self.file_txt = self.valid_dir+"\\ImageSets\\"+self.valid_txt
+            self.anno_dir = self.valid_dir+"\\Annotation\\"
 
         img_names = []
         img_data = []
@@ -52,13 +53,11 @@ class Yolodata(Dataset):
         with open(img_path, 'rb') as f:
             img = cv2.imread(img_path, cv2.IMREAD_COLOR)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            #img = Image.open(f)
             img_origin_h, img_origin_w = img.shape[:2]
-            #img = self.resize(img)
 
-        if self.is_train:
+        #if anno_dir is didnt exist, Test dataset
+        if os.path.isdir(self.anno_dir):
             anno_path = self.anno_dir + self.img_data[index].replace(".png", ".txt")
-            
             
             bbox = []
             cls = []
@@ -67,6 +66,9 @@ class Yolodata(Dataset):
             with open(anno_path, 'r') as f:
                 for line in f.readlines():
                     gt_data = [ l for l in line.split(" ")]
+                    #ignore very tiny GTs
+                    if float(gt_data[6]) - float(gt_data[4]) <= 20 or float(gt_data[7]) - float(gt_data[5]) <= 20:
+                        continue
                     cls.append(self.class_str.index(gt_data[0]))
                     bbox.append([float(i) for i in gt_data[4:8]]) #[xmin, ymin, xmax, ymax]
                     trunc.append(float(gt_data[1]))
