@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -87,7 +88,7 @@ def make_conv_layer(layer_idx, layer_info, in_channel):
     filters = int(layer_info['filters'])
     size = int(layer_info['size'])
     stride = int(layer_info['stride'])
-    pad = int(layer_info['pad'])
+    pad = (size - 1) // 2
     modules = nn.Sequential()
     modules.add_module('layer_'+str(layer_idx)+'_conv',
                       nn.Conv2d(in_channel,
@@ -130,6 +131,9 @@ class DarkNet53(nn.Module):
         #            10.33, 10.65]
         self.fpn_grid_size = [self.in_width // 32, self.in_height // 32, self.in_width // 16, self.in_height // 16, self.in_width // 8, self.in_height // 8]
         self.stride = [self.get_grid_wh(j) for j in range(3)]
+
+        self.seen = 0
+        self.header_info = np.array([0, 0, 0, self.seen, 0], dtype=np.int32)
         
         self.initialize_weights()
         
@@ -365,6 +369,71 @@ class DarkNet53(nn.Module):
         # fpn1_data = self.transform_grid_data(fpn1_out,0)
         # pred_data = torch.cat((fpn1_data, fpn2_data, fpn3_data), dim = 1)
         return yolo_result
+
+    def load_darknet_weights(self, weights_path):
+        """Parses and loads the weights stored in 'weights_path'"""
+        # Open the weights file
+        with open(weights_path, "rb") as f:
+            # First five are header values
+            header = np.fromfile(f, dtype=np.int32, count=5)
+            self.header_info = header  # Needed to write header when saving weights
+            self.seen = header[3]  # number of images seen during training
+            weights = np.fromfile(f, dtype=np.float32)  # The rest are weights
+        # Establish cutoff for loading backbone weights
+        cutoff = None
+        # If the weights file has a cutoff, we can find out about it by looking at the filename
+        # examples: darknet53.conv.74 -> cutoff is 74
+        filename = os.path.basename(weights_path)
+        if ".conv." in filename:
+            try:
+                cutoff = int(filename.split(".")[-1])  # use last part of filename
+            except ValueError:
+                pass
+
+        ptr = 0
+        for i, (module_def, module) in enumerate(zip(self.module_cfg, self.module_list)):
+            print(i, module_def, cutoff)
+            if i == cutoff:
+                break
+            if module_def["type"] == "convolutional":
+                conv_layer = module[0]
+                if module_def["batch_normalize"]:
+                    # Load BN bias, weights, running mean and running variance
+                    bn_layer = module[1]
+                    num_b = bn_layer.bias.numel()  # Number of biases
+                    # Bias
+                    bn_b = torch.from_numpy(
+                        weights[ptr: ptr + num_b]).view_as(bn_layer.bias)
+                    bn_layer.bias.data.copy_(bn_b)
+                    ptr += num_b
+                    # Weight
+                    bn_w = torch.from_numpy(
+                        weights[ptr: ptr + num_b]).view_as(bn_layer.weight)
+                    bn_layer.weight.data.copy_(bn_w)
+                    ptr += num_b
+                    # Running Mean
+                    bn_rm = torch.from_numpy(
+                        weights[ptr: ptr + num_b]).view_as(bn_layer.running_mean)
+                    bn_layer.running_mean.data.copy_(bn_rm)
+                    ptr += num_b
+                    # Running Var
+                    bn_rv = torch.from_numpy(
+                        weights[ptr: ptr + num_b]).view_as(bn_layer.running_var)
+                    bn_layer.running_var.data.copy_(bn_rv)
+                    ptr += num_b
+                else:
+                    # Load conv. bias
+                    num_b = conv_layer.bias.numel()
+                    conv_b = torch.from_numpy(
+                        weights[ptr: ptr + num_b]).view_as(conv_layer.bias)
+                    conv_layer.bias.data.copy_(conv_b)
+                    ptr += num_b
+                # Load conv. weights
+                num_w = conv_layer.weight.numel()
+                conv_w = torch.from_numpy(
+                    weights[ptr: ptr + num_w]).view_as(conv_layer.weight)
+                conv_layer.weight.data.copy_(conv_w)
+                ptr += num_w
 
 
 
