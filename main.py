@@ -1,23 +1,19 @@
 import os,sys
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-#import numpy as np
+
 import torch
 import argparse
-from glob import glob
-import warnings
-
 from eval.evaluator import Evaluator
+#import warnings
 #warnings.filterwarnings("error")
 from torch.utils.data.dataloader import DataLoader
 import torchsummary as summary
 from model.yolov3 import DarkNet53
-from model.loss import celoss
 from dataloader.yolodata import *
 from train.trainer import Trainer
 from demo.demo import Demo
 from dataloader.data_transforms import *
-import torch.utils as utils
 from tensorboardX import SummaryWriter
 import pynvml
 
@@ -54,16 +50,49 @@ def parse_args():
     return args
 
 def collate_fn(batch):
-    return tuple(zip(*batch))
+    batch = [data for data in batch if data is not None]
+    imgs, targets, anno_path = list(zip(*batch))
+
+    imgs = torch.stack([img for img in imgs])
+    for i, boxes in enumerate(targets):
+        boxes[:, 0] = i
+
+    targets = torch.cat(targets,0)
+
+    return imgs, targets, anno_path
 
 def train(cfg_param = None, using_gpus = None):
-    
+    #Train dataloader
     transforms = get_transformations(cfg_param, is_train = True)
-    train_data = Yolodata(is_train=True, transform=transforms, cfg_param = cfg_param)
-    train_loader = DataLoader(train_data, batch_size=cfg_param['batch'], num_workers=4, pin_memory=True, drop_last=True, shuffle=True, collate_fn=collate_fn)
+    train_data = Yolodata(is_train=True,
+                          transform=transforms,
+                          cfg_param = cfg_param)
+    train_loader = DataLoader(train_data, 
+                              batch_size=cfg_param['batch'],
+                              num_workers=0,
+                              pin_memory=True,
+                              drop_last=True,
+                              shuffle=True,
+                              collate_fn=collate_fn,
+                              worker_init_fn=worker_seed_set)
+    #evaluation dataloader
+    eval_transforms = get_transformations(cfg_param, is_train = False)
+    eval_data = Yolodata(is_train = False,
+                         transform = eval_transforms,
+                         cfg_param = cfg_param)
+    eval_dataloader = DataLoader(eval_data,
+                                 batch_size = cfg_param['batch'],
+                                 num_workers = 0,
+                                 pin_memory = True,
+                                 drop_last = False,
+                                 shuffle = False,
+                                 collate_fn=collate_fn,
+                                 worker_init_fn=worker_seed_set)
 
-    model = DarkNet53(args.cfg, is_train=True)
+    #Get OD model
+    model = DarkNet53(args.cfg, cfg_param)
     
+    #load pre-trained darknet weights
     if args.pretrained is not None:
         print("load pretrained model")
         model.load_darknet_weights(args.pretrained)
@@ -112,12 +141,13 @@ def train(cfg_param = None, using_gpus = None):
         yolo_model = model.module
     else:
         yolo_model = model
+
     #Export Yolo model from pytorch to onnx format. yolov3.onnx
     x_test = torch.randn(2, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
     #torch.onnx.export(yolo_model, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
     
     #Set trainer
-    trainer = Trainer(yolo_model, train_loader, device, cfg_param, checkpoint, torch_writer = torch_writer)
+    trainer = Trainer(yolo_model, train_loader, eval_dataloader, cfg_param, eval_data.class_str, device, checkpoint, torch_writer = torch_writer)
     trainer.run()
 
 def eval(cfg_param = None, using_gpus = None):
@@ -126,7 +156,7 @@ def eval(cfg_param = None, using_gpus = None):
     eval_data = Yolodata(is_train = False, transform = transforms, cfg_param = cfg_param)
     eval_loader = DataLoader(eval_data, batch_size = 1, num_workers = 0, pin_memory = True, drop_last = False, shuffle = False, collate_fn=collate_fn)
     
-    model = DarkNet53(args.cfg, is_train = False)
+    model = DarkNet53(args.cfg, cfg_param)
 
     if len(using_gpus) == 0:
         device = torch.device("cpu")
@@ -181,7 +211,7 @@ def demo(cfg_param = None, using_gpus = None):
     data = Yolodata(is_train = False, transform = transforms, cfg_param = cfg_param)
     demo_loader = DataLoader(data, batch_size = 1, num_workers = 4, pin_memory = True, drop_last = False, shuffle = False)
     
-    model = DarkNet53(args.cfg, is_train = False)
+    model = DarkNet53(args.cfg, cfg_param)
     if args.checkpoint is not None:
         print("load pretrained model ", args.checkpoint)
         checkpoint = torch.load(args.checkpoint)
@@ -198,7 +228,7 @@ def demo(cfg_param = None, using_gpus = None):
         print('device is cpu')
     
     model = model.to(device)
-    
+    model.eval()
     torch.backends.cudnn.benchmark = True
 
     demo = Demo(model, data, demo_loader, device, cfg_param)
@@ -208,7 +238,7 @@ def demo(cfg_param = None, using_gpus = None):
         
 if __name__ == "__main__":
     args = parse_args()
-    cfg_data = parse_model_config(args.cfg)
+    cfg_data = parse_hyperparam_config(args.cfg)
     cfg_param = get_hyperparam(cfg_data)
     
     # multi-gpu

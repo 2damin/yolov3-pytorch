@@ -8,11 +8,17 @@ import torchvision.transforms as transforms
 from util.tools import *
 from train.loss import *
 from train.scheduler import *
+from torch.utils.data.dataloader import DataLoader
+from dataloader.yolodata import *
+from dataloader.data_transforms import *
+
+from terminaltables import AsciiTable
 
 class Trainer:
-    def __init__(self, model, train_loader, device, hparam, checkpoint = None, torch_writer = None):
+    def __init__(self, model, train_loader, eval_loader, hparam, class_str, device, checkpoint = None, torch_writer = None):
         self.model = model
         self.train_loader = train_loader
+        self.eval_loader = eval_loader
         self.max_batch = hparam['max_batch']
         self.decay_step = hparam['steps']
         self.device = device
@@ -21,6 +27,8 @@ class Trainer:
         self.torch_writer = torch_writer
         self.yololoss = YoloLoss(self.device, self.model.n_classes, hparam['ignore_cls'])
         self.optimizer = optim.SGD(model.parameters(), lr=hparam['lr'], momentum=hparam['momentum'])
+        self.class_str = class_str
+
         
         if checkpoint is not None:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -39,12 +47,11 @@ class Trainer:
                                                after_scheduler=scheduler_cosine)
 
     def run(self):
-        # with torch.profiler.profile(
-        #     schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
-        #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/yolov3'),
-        #     record_shapes=True,
-        #     with_stack=True) as prof:
         while True:
+            #evaluate
+            self.model.eval()
+            self.run_eval()
+            self.model.train()
             loss = self.run_iter()
             self.epoch += 1
             if self.epoch % 1 == 0:
@@ -59,13 +66,12 @@ class Trainer:
                 break
 
     def run_iter(self):
+        #torch.autograd.set_detect_anomaly(True)
         for i, batch in enumerate(self.train_loader):
-            _input_img, targets = batch #batch['img'], batch['target']
+            input_img, targets, anno_path = batch
             
-            #stack [1,c,h,w] images to make [n,c,h,w] image
-            input_img = torch.stack(_input_img,0)
-            input_wh = [input_img.shape[3], input_img.shape[2]]
-            
+            #input_wh = [input_img.shape[3], input_img.shape[2]]
+            # inv_img = inv_normalize(input_img)
             # for b in range(len(targets)):
             #     target_box = targets[b]['bbox']
             #     target_cls = targets[b]['cls']
@@ -76,65 +82,84 @@ class Trainer:
             #         target_box[t,2] *= input_wh[0]
             #         target_box[t,1] *= input_wh[1]
             #         target_box[t,3] *= input_wh[1]
-            #         drawBox(input_img.detach().numpy()[b], target_box, cls = targets[b]['cls'], text = None)
+            #         drawBox(input_img.detach().numpy()[b], target_box, cls = targets[b]['cls'])
             # continue
             
-            input_img = input_img.to(self.device)
+            input_img = input_img.to(self.device, non_blocking=True)
 
             start_time = time.time()
 
             output = self.model(input_img)
             
-            losses = self.yololoss.compute_loss(input = output,
-                                                targets = targets,
-                                                nw = self.model.in_width,
-                                                nh = self.model.in_height,
-                                                yolo_layers = self.model.yolo_layers,
-                                                tmp_img = input_img)
-
-            loss_name = ['total', 'x', 'y', 'w', 'h', 'conf', 'cls', 'iou']
-            total_loss = [[] for _ in loss_name]
-            for _, loss in enumerate(losses):
-                for k, l in enumerate(loss):
-                    total_loss[k].append(l)
-                    #print(loss_name[k], " : ", l)
-                    
-            total_loss = [sum(l) for l in total_loss]
-                    
-            if total_loss[0] > 1000:
-                for b in range(len(targets)):
-                    target_box = targets[b]['bbox']
-                    target_cls = targets[b]['cls']
-                    target_occ = targets[b]['occ']
-                    print(targets[b]['path'])
-                    for t in range(target_box.shape[0]):
-                        print(target_box[t], input_wh)
-                        target_box[t,0] *= input_wh[0]
-                        target_box[t,2] *= input_wh[0]
-                        target_box[t,1] *= input_wh[1]
-                        target_box[t,3] *= input_wh[1]
-                        drawBox(input_img.detach().cpu().numpy()[b], target_box, cls = targets[b]['cls'], text = None)
-                sys.exit(1)
+            loss, loss_list = self.yololoss.compute_loss(pred = output,
+                                                        targets = targets,
+                                                        yolo_layers = self.model.yolo_layers,
+                                                        tmp_img = None)
             
-            #if nan values in loss calculation, skip backprop
-            if len(losses) == 0:
-                print("WARNING: non-finite loss, skip backprop")
-            else:
-                print("{} iter ".format(self.iter), total_loss)
-                loss = total_loss[0]
-                loss.backward()
-                self.optimizer.step()
-                self.optimizer.zero_grad()
-                self.lr_scheduler.step(self.iter)
-                self.iter += 1
-
-                if i % 100 == 0:
-                    duration = float(time.time() - start_time)
-                    latency = self.model.batch / duration
-                    print("epoch {} iter {} lr {} , loss : {}".format(self.epoch, self.iter, get_lr(self.optimizer), loss.item()))
-                    self.torch_writer.add_scalar("lr", get_lr(self.optimizer), self.iter)
-                    self.torch_writer.add_scalar('example/sec', latency, self.iter)
-                    for ln, ls in zip(loss_name, total_loss):
-                        self.torch_writer.add_scalar(ln, ls, self.iter)
+            calc_time = time.time() - start_time
+            print("{} iter {:.6f} lr {:.4f} loss / {} time".format(self.iter, get_lr(self.optimizer), loss.item(), calc_time))
             
-        return loss.item()
+            loss.backward()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+            self.lr_scheduler.step(self.iter)
+            self.iter += 1
+            
+            loss_name = ['total_loss','obj_loss', 'cls_loss', 'box_loss']
+
+            if i % 100 == 0:
+                duration = float(time.time() - start_time)
+                latency = self.model.batch / duration
+                print("epoch {} iter {} lr {} , loss : {}".format(self.epoch, self.iter, get_lr(self.optimizer), loss.item()))
+                self.torch_writer.add_scalar("lr", get_lr(self.optimizer), self.iter)
+                self.torch_writer.add_scalar('example/sec', latency, self.iter)
+                self.torch_writer.add_scalar('total_loss', loss, self.iter)
+                for ln, ls in zip(loss_name, loss_list):
+                    self.torch_writer.add_scalar(ln, ls, self.iter)
+        return loss
+    
+    def run_eval(self):
+        predict_all = []
+        gt_labels = []
+        for i, batch in enumerate(self.eval_loader):
+            input_img, targets, _ = batch
+            
+            input_img = input_img.to(self.device, non_blocking=True)
+            
+            gt_labels += targets[...,1].tolist()
+
+            targets[...,2:6] = cxcy2minmax(targets[...,2:6])
+            input_wh = [input_img.shape[3], input_img.shape[2]]
+            targets[...,2] *= input_wh[0]
+            targets[...,4] *= input_wh[0]
+            targets[...,3] *= input_wh[1]
+            targets[...,5] *= input_wh[1]
+            start_time = time.time()
+            with torch.no_grad():
+                output = self.model(input_img)
+                best_box_list = non_max_suppression(output, conf_thres=0.1, iou_thres=0.5)
+                
+            predict_all += get_batch_statistics(best_box_list, targets, iou_threshold=0.5)
+                
+            if len(predict_all) == 0:
+                print("no detection in eval data")
+                return None
+            if i % 100 == 0:
+                print("-------eval {}th iter -----".format(i))
+        # Concatenate sample statistics
+        true_positives, pred_scores, pred_labels = [
+            np.concatenate(x, 0) for x in list(zip(*predict_all))]
+
+        metrics_output = ap_per_class(
+            true_positives, pred_scores, pred_labels, gt_labels)
+        
+        #print eval result
+        if metrics_output is not None:
+            precision, recall, ap, f1, ap_class = metrics_output
+            ap_table = [["Index", "Class", "AP"]]
+            for i, c in enumerate(ap_class):
+                ap_table += [[c, self.class_str[c], "%.5f" % ap[i]]]
+            print(AsciiTable(ap_table).table)
+        print("---- mAP {AP.mean():.5f} ----")
+        
+

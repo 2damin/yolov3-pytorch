@@ -1,4 +1,3 @@
-from msilib.schema import Class
 import numpy as np
 import cv2
 import torch
@@ -7,19 +6,24 @@ from torchvision import transforms as tf
 #  pip install imgaug
 import imgaug as ia
 from imgaug import augmenters as iaa
+from imgaug.augmentables.bbs import BoundingBox, BoundingBoxesOnImage
 
-from util.tools import minmax2cxcy
+from util.tools import minmax2cxcy, xywh2xyxy_np
 
 def get_transformations(cfg_param = None, is_train = None):
-    data_transform = Compose()
     if is_train:
-        data_transform.add(ImageBaseAug())
-        data_transform.add(AffineAug())
-        data_transform.add(ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])))
-        data_transform.add(ToTensor())
+        data_transform = tf.Compose([AbsoluteLabels(),
+                                     DefaultAug(),
+                                     PadSquare(),
+                                     RelativeLabels(),
+                                     ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])),
+                                     ToTensor(),])
     elif not is_train:
-        data_transform.add(ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])))
-        data_transform.add(ToTensor())   
+        data_transform = tf.Compose([AbsoluteLabels(),
+                                     PadSquare(),
+                                     RelativeLabels(),
+                                     ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])),
+                                     ToTensor(),]) 
     return data_transform
 
 class Compose(object):
@@ -44,23 +48,23 @@ class ToTensor(object):
         self.max_objects = max_objects
         self.is_debug = is_debug
 
-    def __call__(self, sample):
-        image, labels = sample['image'], sample['label']
+    def __call__(self, data):
+        image, labels = data
         if self.is_debug == False:
-            image = torch.div(torch.tensor(np.transpose(np.array(image, dtype=float),(2,0,1)),dtype=torch.float32),255)
+            image = torch.tensor(np.transpose(np.array(image, dtype=float) / 255,(2,0,1)),dtype=torch.float32)
         elif self.is_debug == True:
             image = torch.tensor(np.array(image, dtype=float),dtype=torch.float32)
         labels = torch.FloatTensor(np.array(labels))
         # filled_labels = np.zeros((self.max_objects, 5), np.float32)
         # filled_labels[range(len(labels))[:self.max_objects]] = labels[:self.max_objects]
-        return {'image': image, 'label': labels}
+        return image, labels
 
 class KeepAspect(object):
     def __init__(self):
         pass
 
-    def __call__(self, sample):
-        image, label = sample['image'], sample['label']
+    def __call__(self, data):
+        image, label = data
 
         h, w, _ = image.shape
         dim_diff = np.abs(h - w)
@@ -73,43 +77,33 @@ class KeepAspect(object):
         padded_h, padded_w, _ = image_new.shape
 
         # Extract coordinates for unpadded + unscaled image
-        x1 = w * (label[:, 1] - label[:, 3]/2)
-        y1 = h * (label[:, 2] - label[:, 4]/2)
-        x2 = w * (label[:, 1] + label[:, 3]/2)
-        y2 = h * (label[:, 2] + label[:, 4]/2)
+        x1 = w * (label[:, 0] - label[:, 2]/2)
+        y1 = h * (label[:, 1] - label[:, 3]/2)
+        x2 = w * (label[:, 0] + label[:, 2]/2)
+        y2 = h * (label[:, 1] + label[:, 3]/2)
         # Adjust for added padding
         x1 += pad[1][0]
         y1 += pad[0][0]
         x2 += pad[1][0]
         y2 += pad[0][0]
         # Calculate ratios from coordinates
-        label[:, 1] = ((x1 + x2) / 2) / padded_w
-        label[:, 2] = ((y1 + y2) / 2) / padded_h
-        label[:, 3] *= w / padded_w
-        label[:, 4] *= h / padded_h
+        label[:, 0] = ((x1 + x2) / 2) / padded_w
+        label[:, 1] = ((y1 + y2) / 2) / padded_h
+        label[:, 2] *= w / padded_w
+        label[:, 3] *= h / padded_h
 
-        return {'image': image_new, 'label': label}
+        return image_new, label
 
 class ResizeImage(object):
     def __init__(self, new_size, interpolation=cv2.INTER_LINEAR):
         self.new_size = tuple(new_size) #  (w, h)
         self.interpolation = interpolation
 
-    def __call__(self, sample):
-        image, label = sample['image'], sample['label']
-        #normalize bbox points
-        img_origin_h, img_origin_w = image.shape[:2]
-        for i, l in enumerate(label):
-            sample['label'][i][0] = l[0] / img_origin_w
-            sample['label'][i][1] = l[1] / img_origin_h
-            sample['label'][i][2] = l[2] / img_origin_w
-            sample['label'][i][3] = l[3] / img_origin_h
-            sample['label'][i] = np.clip(sample['label'][i],0,1)
-            minmax2cxcy(sample['label'][i])
-        #resize image
+    def __call__(self, data):
+        image, label = data
         image = cv2.resize(image, self.new_size, interpolation=self.interpolation)
 
-        return {'image': image, 'label': sample['label']}
+        return image, label
 
 class ImageBaseAug(object):
     def __init__(self):
@@ -142,11 +136,94 @@ class ImageBaseAug(object):
             random_order=True
         )
 
-    def __call__(self, sample):
+    def __call__(self, data):
         seq_det = self.seq.to_deterministic()
-        image, label = sample['image'], sample['label']
+        image, label = data
         image = seq_det.augment_images([image])[0]
-        return {'image': image, 'label': label}
+        return image, label
+
+class ImgAug(object):
+    def __init__(self, augmentations=[]):
+        self.augmentations = augmentations
+
+    def __call__(self, data):
+        # Unpack data
+        img, boxes = data
+
+        # Convert xywh to xyxy
+        boxes = np.array(boxes)
+        boxes[:, 1:] = xywh2xyxy_np(boxes[:, 1:])
+
+        # Convert bounding boxes to imgaug
+        bounding_boxes = BoundingBoxesOnImage(
+            [BoundingBox(*box[1:], label=box[0]) for box in boxes],
+            shape=img.shape)
+
+        # Apply augmentations
+        img, bounding_boxes = self.augmentations(
+            image=img,
+            bounding_boxes=bounding_boxes)
+
+        # Clip out of image boxes
+        bounding_boxes = bounding_boxes.clip_out_of_image()
+
+        # Convert bounding boxes back to numpy
+        boxes = np.zeros((len(bounding_boxes), 5))
+        for box_idx, box in enumerate(bounding_boxes):
+            # Extract coordinates for unpadded + unscaled image
+            x1 = box.x1
+            y1 = box.y1
+            x2 = box.x2
+            y2 = box.y2
+
+            # Returns (x, y, w, h)
+            boxes[box_idx, 0] = box.label
+            boxes[box_idx, 1] = ((x1 + x2) / 2)
+            boxes[box_idx, 2] = ((y1 + y2) / 2)
+            boxes[box_idx, 3] = (x2 - x1)
+            boxes[box_idx, 4] = (y2 - y1)
+
+        return img, boxes
+
+class DefaultAug(ImgAug):
+    def __init__(self, ):
+        self.augmentations = iaa.Sequential([
+            iaa.Sharpen((0.0, 0.1)),
+            iaa.Affine(rotate=(-0, 0), translate_percent=(-0.1, 0.1), scale=(0.8, 1.5)),
+            iaa.AddToBrightness((-60, 40)),
+            iaa.AddToHue((-10, 10)),
+            iaa.Fliplr(0.5),
+        ])
+
+class AbsoluteLabels(object):
+    def __init__(self, ):
+        pass
+
+    def __call__(self, data):
+        image, label = data
+        h, w, _ = image.shape
+        label[:, [1, 3]] *= w
+        label[:, [2, 4]] *= h
+        return image, label
+
+class RelativeLabels(object):
+    def __init__(self, ):
+        pass
+
+    def __call__(self, data):
+        image, label = data
+        h, w, _ = image.shape
+        label[:, [1, 3]] /= w
+        label[:, [2, 4]] /= h
+        return image, label
+
+class PadSquare(ImgAug):
+    def __init__(self, ):
+        self.augmentations = iaa.Sequential([
+            iaa.PadToAspectRatio(
+                1.0,
+                position="center-center").to_deterministic()
+        ])
 
 class AffineAug(object):
     def __init__(self):
@@ -159,18 +236,21 @@ class AffineAug(object):
             random_order=True
         )
     
-    def __call__(self, sample):
+    def __call__(self, data):
         seq_det = self.seq.to_deterministic()
-        image, label = sample['image'], sample['label']
+        image, label = data
+        img_h, img_w = image.shape[:2]
         ia_bboxes = []
         for box in label:
-            ia_bboxes.append(ia.BoundingBox(x1=box[0], y1=box[1], x2=box[2], y2=box[3]))
+            xmin, xmax = img_w * (box[0] - box[2]/2), img_w * (box[0] + box[2]/2)
+            ymin, ymax = img_h * (box[1] - box[3]/2), img_h * (box[1] + box[3]/2)
+            ia_bboxes.append(ia.BoundingBox(x1=xmin, y1=ymin, x2=xmax, y2=ymax))
         label_ia =ia.BoundingBoxesOnImage(ia_bboxes, shape=image.shape)
         image = seq_det.augment_images([image])[0]
         label_ia = seq_det.augment_bounding_boxes([label_ia])[0]
 
 
         for i, bbox in enumerate(label_ia):
-            sample['label'][i] = np.array([bbox.x1, bbox.y1, bbox.x2, bbox.y2])
+            label[i] = np.array([bbox.x1, bbox.y1, bbox.x2, bbox.y2])
 
-        return {'image': image, 'label': sample['label']}
+        return image, label

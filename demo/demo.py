@@ -13,32 +13,31 @@ class Demo:
 
     def run(self):
         for i, batch in enumerate(self.data_loader):
-            input_img, _ = batch
-            if self.device == torch.device('cuda'):
-                input_img = input_img.cuda()
-
-            nw = input_img.shape[3]
-            nh = input_img.shape[2]
+            input_img, _, _ = batch
+            
+            input_img = input_img.to(self.device, non_blocking=True)
 
             with torch.no_grad():
                 start_time = time.time()
             
                 output = self.model(input_img)
                             
-                output_list = self.yololoss.compute_loss(output, targets = None, nw = nw, nh = nh, yolo_layers = self.model.yolo_layers)
+                # _, output_list = self.yololoss.compute_loss(output, targets = None, nw = nw, nh = nh, yolo_layers = self.model.yolo_layers)
 
-                output_all = torch.cat(output_list, dim=1)
-                
+                output_all = torch.cat(output, dim=1)
+                print(output_all.shape)
                 best_box_list = non_max_sup(output_all, self.model.n_classes, conf_th=0.5, nms_th=0.5)
-                print(best_box_list)
                 
-                final_box_list = best_box_list[best_box_list[:,4] > 0.9]
-
+                if best_box_list is None:
+                    continue
+                print(best_box_list.shape)
+                final_box_list = best_box_list[best_box_list[:,4] > 0.85]
+                print("final :", final_box_list.shape)
                 if i % 100 == 0:
                     print("-------{} th iter -----".format(i))
                 if final_box_list is None:
                     continue
                 show_img = input_img.detach().cpu().numpy()[0,:,:,:]
-                drawBox(show_img, final_box_list, final_box_list[:,6], mode=1)
+                drawBox(show_img, best_box_list, best_box_list[:,6], mode=1)
 
         

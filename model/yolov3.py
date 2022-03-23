@@ -68,28 +68,50 @@ class ConvUp(nn.Module):
 #         return x
 
 class YoloLayer(nn.Module):
-    def __init__(self, layer_idx, layer_info, in_channel, in_width, in_height):
-        super().__init__()
+    def __init__(self, layer_idx, layer_info, in_channel, in_width, in_height, is_train):
+        super(YoloLayer, self).__init__()
         self.n_classes = int(layer_info['classes'])
         self.ignore_thresh = float(layer_info['ignore_thresh'])
         self.box_attr = self.n_classes + 5
         mask_idxes = [int(x) for x in layer_info["mask"].split(",")]
         anchor_all = [int(x) for x in layer_info["anchors"].split(",")]
         anchor_all = [(anchor_all[i],anchor_all[i+1]) for i in range(0,len(anchor_all),2)]
-        self.anchor = [anchor_all[x] for x in mask_idxes]
+        self.anchor = torch.tensor([anchor_all[x] for x in mask_idxes])
         self.in_width = in_width
         self.in_height = in_height
+        self.training = is_train
+        self.stride = None
+        self.lw = None
+        self.lh = None
         
-    def forward(self, x):           
-        return x
+    def forward(self, x):
+        #batch, num_anchor, x_height, x_width, num_attributes
+        self.lw, self.lh = x.shape[3], x.shape[2]
+        self.anchor = self.anchor.to(x.device)
+        self.stride = torch.tensor([self.in_width // self.lw, self.in_height // self.lh]).to(x.device)
+        x = x.view(-1,self.anchor.shape[0],self.box_attr,self.lh,self.lw).permute(0,1,3,4,2).contiguous()
         
+        anchor_grid = self.anchor.view(1,-1,1,1,2).to(x.device)
 
-def make_conv_layer(layer_idx, layer_info, in_channel):
+        if not self.training:
+            grids = self._make_grid(self.lw, self.lh).to(x.device)
+            # Get outputs
+            x[...,0:2] = (torch.sigmoid(x[...,0:2]) + grids) * self.stride #center xy
+            x[...,2:4] = torch.exp(x[...,2:4]) * anchor_grid     # Width Height
+            x[...,4:] = torch.sigmoid(x[...,4:])       # Conf, Class
+            x = x.view(x.shape[0], -1, self.box_attr)
+        return x
+
+    def _make_grid(self, nx=20, ny=20):
+        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)]) #, indexing='ij'
+        return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
+
+def make_conv_layer(layer_idx, modules, layer_info, in_channel):
     filters = int(layer_info['filters'])
     size = int(layer_info['size'])
     stride = int(layer_info['stride'])
     pad = (size - 1) // 2
-    modules = nn.Sequential()
+    #modules = nn.Sequential()
     modules.add_module('layer_'+str(layer_idx)+'_conv',
                       nn.Conv2d(in_channel,
                                 filters,
@@ -106,29 +128,23 @@ def make_conv_layer(layer_idx, layer_info, in_channel):
     elif layer_info['activation'] == 'relu':
         modules.add_module('layer_'+str(layer_idx)+'_act',
                           nn.ReLU())
-    return modules
+    #return modules
 
 def make_shortcut_layer(modules, layer_idx):
     modules.add_module('layer_'+str(layer_idx)+'_shortcut', nn.Sequential())
 
 class DarkNet53(nn.Module):
-    def __init__(self, cfg, is_train):
+    def __init__(self, cfg, param):
         super().__init__()
-        self.is_train = is_train
-        self.batch = None
-        self.n_channels = None
-        self.in_width = None
-        self.in_height = None
-        self.n_classes = None
+        self.batch = int(param['batch'])
+        self.in_channels = int(param['in_channels'])
+        self.in_width = int(param['in_width'])
+        self.in_height = int(param['in_height'])
+        self.n_classes = int(param['class'])
         self.module_cfg = parse_model_config(cfg)
         self.module_list = self.set_layer(self.module_cfg)
-        self.yolo_layers = [layer for layer in self.module_list if isinstance(layer, YoloLayer)]
+        self.yolo_layers = [layer[0] for layer in self.module_list if isinstance(layer[0], YoloLayer)]
         self.box_per_anchor = 3
-        # self.anchor_size = [1.19, 1.99,     # width, height for anchor 1
-        #            2.79, 4.60,     # width, height for anchor 2
-        #            4.54, 8.93,     # etc.
-        #            8.06, 5.29,
-        #            10.33, 10.65]
         self.fpn_grid_size = [self.in_width // 32, self.in_height // 32, self.in_width // 16, self.in_height // 16, self.in_width // 8, self.in_height // 8]
         self.stride = [self.get_grid_wh(j) for j in range(3)]
 
@@ -189,40 +205,33 @@ class DarkNet53(nn.Module):
         #                           ConvBlock(in_channels=1024, out_channels=self.output_channels, kernel_size=1, stride=1, padding=0, name='fpn3_b', act='linear'))
     
     def set_layer(self, layer_info):
-        module_list = nn.Sequential()
-        in_channels = []
+        module_list = nn.ModuleList()
+        in_channels = [self.in_channels]
         for layer_idx, info in enumerate(layer_info):
             print(layer_idx, info['type'])
-            if info['type'] == "net":
-                self.batch = int(info['batch']) if self.is_train else 1
-                self.n_channels = int(info['channels'])
-                self.in_width = int(info['width'])
-                self.in_height = int(info['height'])
-                self.n_classes = int(info['class'])
-                module_list.add_module('layer_'+str(layer_idx)+'_net', nn.Sequential())
-                in_channels.append(self.n_channels)
-            elif info['type'] == "convolutional":
-                module_list.add_module('layer_'+ str(layer_idx), make_conv_layer(layer_idx, info, in_channels[-1]))
+            modules = nn.Sequential()
+            if info['type'] == "convolutional":
+                make_conv_layer(layer_idx, modules, info, in_channels[-1])
                 in_channels.append(int(info['filters']))
             elif info['type'] == 'shortcut':
-                make_shortcut_layer(module_list, layer_idx)
+                make_shortcut_layer(modules, layer_idx)
                 in_channels.append(in_channels[-1])
             elif info['type'] == 'route':
-                module_list.add_module('layer_'+str(layer_idx)+'_route', nn.Sequential())
+                modules.add_module('layer_'+str(layer_idx)+'_route', nn.Sequential())
                 layers = [int(y) for y in info["layers"].split(",")]
                 if len(layers) == 1:
                     in_channels.append(in_channels[layers[0]])
                 elif len(layers) == 2:
                     in_channels.append(in_channels[layers[0]] + in_channels[layers[1]])
             elif info['type'] == 'upsample':
-                module_list.add_module('layer_'+str(layer_idx)+'_upsample',
+                modules.add_module('layer_'+str(layer_idx)+'_upsample',
                                        nn.Upsample(scale_factor=int(info['stride']), mode='nearest'))
                 in_channels.append(in_channels[-1])
             elif info['type'] == 'yolo':
-                module_list.add_module('layer_'+ str(layer_idx), YoloLayer(layer_idx, info, in_channels[-1], self.in_width, self.in_height))
-                #make_yolo_layer(module_list, layer_idx, info, in_channels[-1])
+                yololayer = YoloLayer(layer_idx, info, in_channels[-1], self.in_width, self.in_height, self.training)
+                modules.add_module('layer_'+ str(layer_idx)+'_yolo', yololayer)
                 in_channels.append(in_channels[-1])
-            #print(layer_idx, info['type'], in_channels[-1])
+            module_list.append(modules)
         return module_list            
     
     def initialize_weights(self):
@@ -276,7 +285,7 @@ class DarkNet53(nn.Module):
         #features = features.permute([0,2,3,1]).contiguous()
         height_per_grid, width_per_grid = self.get_grid_wh(yolo_idx)
 
-        if not self.is_train:
+        if not self.training:
             for a in range(self.box_per_anchor):
                 #for each box in anchor
                 feat = features[:, :, :, yololayer.box_attr*a:yololayer.box_attr*(a+1)]
@@ -324,51 +333,7 @@ class DarkNet53(nn.Module):
                 layers = [int(y) for y in name["layers"].split(",")]
                 x = torch.cat([layer_result[l] for l in layers], 1)
                 layer_result.append(x)
-        
-        # x = self.conv1(x)
-        # x = self.conv2(x)
-        # x = self.resblock1(x)
-        # x = self.conv3(x)
-        # for i in range(2):
-        #     x = self.resblock2(x)
-        # x = self.conv4(x)
-        # for i in range(8):
-        #     x = self.resblock3(x)
-        # #FPN1
-        # block3_x = x
-
-        # x = self.conv5(x)
-        # for i in range(8):
-        #     x = self.resblock4(x)
-        # #FPN2
-        # block4_x = x
-
-        # x = self.conv6(x)
-        # for i in range(4):
-        #     x = self.resblock5(x)
-        
-        # x = self.conv7(x)
-        # #FPN3
-        # block5_1_x = x
-        
-        # #FPN2
-        # fpn2_x = self.fpn2_a(x)
-        # fpn2_x = torch.cat((fpn2_x, block4_x),dim=1)
-        # fpn2_x = self.fpn2_b(fpn2_x)
-        # fpn2_out = self.fpn2_c(fpn2_x)
-        # #FPN1
-        # fpn1_x = self.fpn1_a(fpn2_x)
-        # fpn1_x = torch.cat((block3_x, fpn1_x),dim=1)
-        # fpn1_x = self.fpn1_b(fpn1_x)
-        # fpn1_out = self.fpn1_c(fpn1_x)
-        # #FPN3
-        # fpn3_out = self.fpn3(block5_1_x)
-        
-        # fpn3_data = self.transform_grid_data(fpn3_out,2)
-        # fpn2_data = self.transform_grid_data(fpn2_out,1)
-        # fpn1_data = self.transform_grid_data(fpn1_out,0)
-        # pred_data = torch.cat((fpn1_data, fpn2_data, fpn3_data), dim = 1)
-        return yolo_result
+        return yolo_result if self.training else torch.cat(yolo_result, dim=1)
 
     def load_darknet_weights(self, weights_path):
         """Parses and loads the weights stored in 'weights_path'"""
@@ -392,7 +357,7 @@ class DarkNet53(nn.Module):
 
         ptr = 0
         for i, (module_def, module) in enumerate(zip(self.module_cfg, self.module_list)):
-            print(i, module_def, cutoff)
+            print(i, module_def, module)
             if i == cutoff:
                 break
             if module_def["type"] == "convolutional":
