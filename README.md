@@ -36,6 +36,7 @@ I recommend Nvidia NGC docker image. [link](https://catalog.ngc.nvidia.com/orgs/
 
 ## Dependency
 
+pip install -r requirements.txt
 ```
 python >= 3.6
 
@@ -111,3 +112,12 @@ tensorboard --logdir=./output --port 8888
 [YOLOv3 paper](https://arxiv.org/abs/1804.02767)
 
 [KITTI dataset](http://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=2d)
+
+
+# error
+
+- if libgl.so error when cv2
+```
+apt-get update
+apt-get install libgl1-mesa-glx
+```
