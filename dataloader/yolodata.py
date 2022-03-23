@@ -16,11 +16,11 @@ class Yolodata(Dataset):
     file_dir = ""
     anno_dir = ""
     file_txt = ""
-    train_dir = "C:\\data\\kitti_dataset\\kitti_yolo\\training"
-    train_txt = "train.txt"
-    valid_dir = "C:\\data\\kitti_dataset\\kitti_yolo\\eval"
-    valid_txt = "eval.txt"
-    class_str = ['Car', 'Van', 'Truck', 'Pedestrian', 'Person_sitting', 'Cyclist', 'Tram', 'Misc', 'DontCare']
+    train_dir = "/damin/data/GODTrain210611"
+    train_txt = "tstld.txt"
+    valid_dir = "/damin/data/GODTest_SVKPI_3000km"
+    valid_txt = "all.txt"
+    class_str = ['ts_circle', 'ts_triangle', 'ts_rectangle', 'tl_car']
     num_class = None
     img_data = []
     def __init__(self, is_train=True, transform=None, cfg_param=None):
@@ -29,13 +29,13 @@ class Yolodata(Dataset):
         self.transform = transform
         self.num_class = cfg_param['class']
         if self.is_train:
-            self.file_dir = self.train_dir+"\\Images\\"
-            self.file_txt = self.train_dir+"\\ImageSets\\"+self.train_txt
-            self.anno_dir = self.train_dir+"\\Annotations\\"
+            self.file_dir = self.train_dir+"/JPEGImages/"
+            self.file_txt = self.train_dir+"/ImageSets/"+self.train_txt
+            self.anno_dir = self.train_dir+"/Annotations/"
         else:
-            self.file_dir = self.valid_dir+"\\Images\\"
-            self.file_txt = self.valid_dir+"\\ImageSets\\"+self.valid_txt
-            self.anno_dir = self.valid_dir+"\\Annotations\\"
+            self.file_dir = self.valid_dir+"/JPEGImages/"
+            self.file_txt = self.valid_dir+"/ImageSets/"+self.valid_txt
+            self.anno_dir = self.valid_dir+"/Annotation_yolo/"
 
         img_names = []
         img_data = []
@@ -87,16 +87,22 @@ class Yolodata(Dataset):
 
             #Change gt_box type
             bbox = np.array(bbox)
+            
+            #skip empty target
+            empty_target = False
+            if bbox.shape[0] == 0:
+                empty_target = True
+                bbox = np.array([[0,0,0,0,0]])
 
             #data augmentation
             img, bbox = self.transform((img, bbox))
 
-            batch_idx = torch.zeros(bbox.shape[0])
-            if bbox.size != 0:
+            if not empty_target:
+                batch_idx = torch.zeros(bbox.shape[0])
                 #batch_idx, cls, x, y, w, h
                 target_data = torch.cat((batch_idx.view(-1,1),bbox),dim=1)
             else:
-                target_data = torch.zeros(6)
+                return
             return img, target_data, anno_path
         else:
             img, _ = self.transform((img, bbox))

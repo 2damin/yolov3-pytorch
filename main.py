@@ -1,6 +1,6 @@
 import os,sys
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import torch
 import argparse
@@ -51,6 +51,10 @@ def parse_args():
 
 def collate_fn(batch):
     batch = [data for data in batch if data is not None]
+    #skip invalid frames
+    if len(batch) == 0:
+        return
+
     imgs, targets, anno_path = list(zip(*batch))
 
     imgs = torch.stack([img for img in imgs])

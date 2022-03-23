@@ -68,6 +68,9 @@ class Trainer:
     def run_iter(self):
         #torch.autograd.set_detect_anomaly(True)
         for i, batch in enumerate(self.train_loader):
+            #drop the invalid frames
+            if batch is None:
+                continue
             input_img, targets, anno_path = batch
             
             #input_wh = [input_img.shape[3], input_img.shape[2]]
@@ -122,6 +125,9 @@ class Trainer:
         predict_all = []
         gt_labels = []
         for i, batch in enumerate(self.eval_loader):
+            #skip invalid frames
+            if batch is None:
+                continue
             input_img, targets, _ = batch
             
             input_img = input_img.to(self.device, non_blocking=True)
