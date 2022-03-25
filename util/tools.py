@@ -201,35 +201,6 @@ def resizeBox(box, original_wh, resize_wh):
         # xmin, xmax = box[0] * ratio_w, box[2] * ratio_w
         # ymin, ymax = box[1] * ratio_h, box[3] * ratio_h
         # return torch.FloatTensor([xmin, ymin, xmax, ymax])
-    
-#Get the anchor's indexes of box based on box location 
-def getAnchorIdx(box, anchors):
-    box_anchor_idxes = []
-    if len(box) == 0 or len(anchors) == 0:
-        return box_anchor_idxes
-    else:
-        for b in box:
-            if len(b) != 4:
-                box_anchor_idxes.append([0,0,0,0])
-                continue
-            idx_per_box = []
-            for anc in anchors:
-                fi, fj = int(torch.div(b[0], anc[0]).item()), int(torch.div(b[1], anc[1]).cpu().detach().item())
-                idx_per_box.append([fi,fj])
-            box_anchor_idxes.append(idx_per_box)
-        return box_anchor_idxes
-    
-def convert_gt_box(box, yololayer):
-    if len(box) == 0:
-        return
-    new_box = torch.zeros_like(box, dtype=torch.float32).cuda()
-    for i in range(box.shape[0]):
-        fi, fj = int(torch.div(box[i,0], yololayer.stride[0]).item()), int(torch.div(box[i,1], yololayer.stride[1]).item())
-        new_box[i,0] = box[i,0] - fi * yololayer.stride[0] #(fi + 0.5) * yololayer.stride[0]
-        new_box[i,1] = box[i,1] - fj * yololayer.stride[1] #(fj + 0.5) * yololayer.stride[1]
-        new_box[i,2] = torch.log(torch.div(box[i,2],yololayer.stride[0]))
-        new_box[i,3] = torch.log(torch.div(box[i,3],yololayer.stride[1]))
-    return new_box
 
 def box_iou(box1, box2, x1y1x2y2=True):
     """
@@ -382,7 +353,7 @@ def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0)):
     plt.imshow(img_data)
     plt.show()
 
-def drawBoxes(_img, boxes, gt, mode = 0):
+def drawBoxlist(_img, boxes : list = [], mode : int = 0):
     _img = _img * 255
     #img dim is [C,H,W]
     if _img.shape[0] == 3:
@@ -392,20 +363,11 @@ def drawBoxes(_img, boxes, gt, mode = 0):
         _img_data = np.array(_img, dtype=np.uint8)
         img_data = Image.fromarray(_img_data, 'L')
     draw = ImageDraw.Draw(img_data)
-    for box in boxes:
-        if (box[4] + box[5]) / 2 < 0.5:
-            continue
-        
+    for box in boxes:       
         if mode == 0:
             draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=(0,255,0), width=1)
         else:
             draw.rectangle((box[0],box[1],box[2],box[3]), outline=(0,255,0), width=1)
-    
-    for g in gt:
-        if mode == 0:
-            draw.rectangle((g[0] - g[2]/2, g[1] - g[3]/2, g[0] + g[2]/2, g[1] + g[3]/2), outline=(255,0,0), width=1)
-        else:
-            draw.rectangle((g[0],g[1],g[2],g[3]), outline=(255,0,0), width=1)
     plt.imshow(img_data)
     plt.show()
 
