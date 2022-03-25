@@ -4,11 +4,12 @@ import PIL, time
 from train.loss import *
 import csv
 import pandas as pd
+from terminaltables import AsciiTable
 
 class Evaluator:
     def __init__(self, model, eval_data, eval_loader, device, hparam):
         self.model = model
-        self.class_list = eval_data.class_str
+        self.class_str = eval_data.class_str
         self.eval_loader = eval_loader
         self.device = device
         self.yololoss = YoloLoss(self.device, self.model.n_classes, hparam['ignore_cls'])
@@ -19,65 +20,51 @@ class Evaluator:
         self.preds = None
 
     def run(self):
+        predict_all = []
+        gt_labels = []
         for i, batch in enumerate(self.eval_loader):
-            _input_img, targets = batch
-            #stack [1,c,h,w] images to make [n,c,h,w] image
-            input_img = torch.stack(_input_img,0)
+            input_img, targets, _ = batch
+            
+            input_img = input_img.to(self.device, non_blocking=True)
+            
+            gt_labels += targets[...,1].tolist()
+
+            targets[...,2:6] = cxcy2minmax(targets[...,2:6])
             input_wh = [input_img.shape[3], input_img.shape[2]]
-            
-            input_img = input_img.to(self.device)
-
+            targets[...,2] *= input_wh[0]
+            targets[...,4] *= input_wh[0]
+            targets[...,3] *= input_wh[1]
+            targets[...,5] *= input_wh[1]
+            start_time = time.time()
             with torch.no_grad():
-                start_time = time.time()
-            
                 output = self.model(input_img)
-                            
-                output_list = self.yololoss.compute_loss(output,
-                                                         targets = None,
-                                                         nw = self.model.in_width,
-                                                         nh = self.model.in_height,
-                                                         yolo_layers = self.model.yolo_layers)
-
-                output_all = torch.cat(output_list, dim=1)
-                best_box_list = non_max_sup(output_all, self.model.n_classes, conf_th=0.5, nms_th=0.5)
-
-                if best_box_list is None:
-                    continue
-
-                final_box_list = best_box_list[best_box_list[:,4] > 0.85]
-
-                self.evaluate(final_box_list, targets[0])
+                best_box_list = non_max_suppression(output, conf_thres=0.1, iou_thres=0.5)
                 
-                if i % 100 == 0:
-                    print("-------{} th iter -----".format(i))
+            predict_all += get_batch_statistics(best_box_list, targets, iou_threshold=0.5)
                 
-                if final_box_list is None:
-                    continue
-                
-                # drawBox(input_img.detach().cpu().numpy()[0,:,:,:], final_box_list, mode=1)
-                
-                #temporary transform the format of GT boxes to draw box in image
-                # for i in range(targets['bbox'][0].shape[0]):
-                #     if targets['cls'][0][i] == 8:
-                #         continue
-                #     cxcy2minmax(targets['bbox'][0,i])
-                #     targets['bbox'][:,i,0] = targets['bbox'][:,i,0] * self.model.in_width
-                #     targets['bbox'][:,i,2] = targets['bbox'][:,i,2] * self.model.in_width
-                #     targets['bbox'][:,i,1] = targets['bbox'][:,i,1] * self.model.in_height
-                #     targets['bbox'][:,i,3] = targets['bbox'][:,i,3] * self.model.in_height
-                # drawBoxes(input_img.detach().cpu().numpy()[0,:,:,:], best_box_list, targets['bbox'][0], mode=1)
+            if len(predict_all) == 0:
+                print("no detection in eval data")
+                return None
+            if i % 100 == 0:
+                print("-------eval {}th iter -----".format(i))
+        # Concatenate sample statistics
+        true_positives, pred_scores, pred_labels = [
+            np.concatenate(x, 0) for x in list(zip(*predict_all))]
+
+        metrics_output = ap_per_class(
+            true_positives, pred_scores, pred_labels, gt_labels)
         
-        #Calculate map, recall, tp, fp, fn.
-        self.evaluate_result()
+        #print eval result
+        if metrics_output is not None:
+            precision, recall, ap, f1, ap_class = metrics_output
+            ap_table = [["Index", "Class", "AP"]]
+            for i, c in enumerate(ap_class):
+                ap_table += [[c, self.class_str[c], "%.5f" % ap[i]]]
+            print(AsciiTable(ap_table).table)
+        print("---- mAP {AP.mean():.5f} ----")
         
     
     def evaluate(self, preds, targets):
-        if preds is None:
-            return
-        #if target object dont exist
-        if targets['bbox'] is None and targets['cls'] is None:
-            return
-        
         #class mapping
         class8 = [0,1,2,3,4,5,6,7] #Car, Van, Truck, Ped, Ped_sitting, Cyclist, Tram, Misc
         class3 = [0,0,0,1,1,2,-1,-1] #Vehicle, Ped, Cyclist
@@ -90,12 +77,6 @@ class Evaluator:
         #remove ignore class GT data
         targets_cls_valid = None
         targets_bbox_valid = None
-        for tidx in range(targets['cls'].shape[0]):
-            if targets['cls'][tidx] == 8 or targets['occ'][tidx] > 1 or targets['trunc'][tidx] > 0.25:
-                continue
-            targets_cls_valid = targets['cls'][tidx].unsqueeze(0) if targets_cls_valid is None else torch.cat((targets_cls_valid, targets['cls'][tidx].unsqueeze(0)), dim=0)
-            targets_bbox_valid = targets['bbox'][tidx].unsqueeze(0) if targets_bbox_valid is None else torch.cat((targets_bbox_valid, targets['bbox'][tidx].unsqueeze(0)), dim=0)
-
 
         #make mask tensor 
         pred_mask = torch.ones(preds.shape[0], requires_grad=False)
