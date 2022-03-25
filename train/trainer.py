@@ -35,32 +35,31 @@ class Trainer:
             self.epoch = checkpoint['epoch']
             self.iter = checkpoint['iteration']
 
-        # self.lr_scheduler = optim.lr_scheduler.StepLR(
-        #     self.optimizer,
-        #     step_size = 50,
-        #     gamma = 0.9)
-
-        scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self.max_batch-hparam['burn_in'])
+        scheduler_multistep = optim.lr_scheduler.MultiStepLR(self.optimizer,
+                                                           milestones=[20,40,60],
+                                                           gamma=0.5)
+        #scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self.max_batch-hparam['burn_in'])
+        
         self.lr_scheduler = LearningRateWarmUP(optimizer=self.optimizer,
                                                warmup_iteration=hparam['burn_in'],
                                                target_lr=hparam['lr'],
-                                               after_scheduler=scheduler_cosine)
+                                               after_scheduler=scheduler_multistep)
 
     def run(self):
         while True:
-            #evaluate
-            self.model.eval()
-            self.run_eval()
             self.model.train()
             loss = self.run_iter()
             self.epoch += 1
-            if self.epoch % 1 == 0:
+            if self.epoch % 10 == 0:
                 checkpoint_path = os.path.join("./output", "model_epoch" + str(self.epoch) + ".pth")
                 torch.save({'epoch': self.epoch,
                             'iteration': self.iter,
                             'model_state_dict': self.model.state_dict(),
                             'optimizer_state_dict': self.optimizer.state_dict(),
                             'loss': loss}, checkpoint_path)
+                #evaluate
+                self.model.eval()
+                self.run_eval()
             
             if self.max_batch <= self.iter:
                 break
@@ -68,6 +67,9 @@ class Trainer:
     def run_iter(self):
         #torch.autograd.set_detect_anomaly(True)
         for i, batch in enumerate(self.train_loader):
+            #drop the invalid frames
+            if batch is None:
+                continue
             input_img, targets, anno_path = batch
             
             #input_wh = [input_img.shape[3], input_img.shape[2]]
@@ -97,20 +99,20 @@ class Trainer:
                                                         tmp_img = None)
             
             calc_time = time.time() - start_time
-            print("{} iter {:.6f} lr {:.4f} loss / {} time".format(self.iter, get_lr(self.optimizer), loss.item(), calc_time))
+            #print("{} iter {:.6f} lr {:.4f} loss / {} time".format(self.iter, get_lr(self.optimizer), loss.item(), calc_time))
             
             loss.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
-            self.lr_scheduler.step(self.iter)
+            self.lr_scheduler.step()
             self.iter += 1
             
-            loss_name = ['total_loss','obj_loss', 'cls_loss', 'box_loss']
+            loss_name = ['total_loss','obj_loss', 'cls_loss', 'cls3_loss', 'box_loss']
 
             if i % 100 == 0:
                 duration = float(time.time() - start_time)
                 latency = self.model.batch / duration
-                print("epoch {} iter {} lr {} , loss : {}".format(self.epoch, self.iter, get_lr(self.optimizer), loss.item()))
+                print("epoch {} / iter {} lr {} , loss {} latency {}".format(self.epoch, self.iter, get_lr(self.optimizer), loss.item(), calc_time))
                 self.torch_writer.add_scalar("lr", get_lr(self.optimizer), self.iter)
                 self.torch_writer.add_scalar('example/sec', latency, self.iter)
                 self.torch_writer.add_scalar('total_loss', loss, self.iter)
@@ -122,6 +124,9 @@ class Trainer:
         predict_all = []
         gt_labels = []
         for i, batch in enumerate(self.eval_loader):
+            #skip invalid frames
+            if batch is None:
+                continue
             input_img, targets, _ = batch
             
             input_img = input_img.to(self.device, non_blocking=True)
