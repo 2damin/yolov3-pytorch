@@ -20,7 +20,7 @@ class Yolodata(Dataset):
     train_txt = "train.txt"
     valid_dir = "C:\\data\\kitti_dataset\\kitti_yolo\\eval"
     valid_txt = "eval.txt"
-    class_str = ['Car', 'Van', 'Truck', 'Pedestrian', 'Person_sitting', 'Cyclist', 'Tram', 'Misc', 'DontCare']
+    class_str = ['Car', 'Van', 'Truck', 'Pedestrian', 'Person_sitting', 'Cyclist', 'Tram', 'Misc']
     num_class = None
     img_data = []
     def __init__(self, is_train=True, transform=None, cfg_param=None):
@@ -69,6 +69,8 @@ class Yolodata(Dataset):
                 txt_name = txt_name.replace(ext, ".txt")
             anno_path = self.anno_dir + txt_name
             
+            if not os.path.exists(anno_path):
+                return
             bbox = []
             with open(anno_path, 'r') as f:
                 for line in f.readlines():
@@ -87,16 +89,22 @@ class Yolodata(Dataset):
 
             #Change gt_box type
             bbox = np.array(bbox)
+            
+            #skip empty target
+            empty_target = False
+            if bbox.shape[0] == 0:
+                empty_target = True
+                bbox = np.array([[0,0,0,0,0]])
 
             #data augmentation
             img, bbox = self.transform((img, bbox))
 
-            batch_idx = torch.zeros(bbox.shape[0])
-            if bbox.size != 0:
+            if not empty_target:
+                batch_idx = torch.zeros(bbox.shape[0])
                 #batch_idx, cls, x, y, w, h
                 target_data = torch.cat((batch_idx.view(-1,1),bbox),dim=1)
             else:
-                target_data = torch.zeros(6)
+                return
             return img, target_data, anno_path
         else:
             img, _ = self.transform((img, bbox))
