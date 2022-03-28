@@ -213,7 +213,7 @@ def demo(cfg_param = None, using_gpus = None):
     print("demo")
     transforms = get_transformations(cfg_param, is_train = False)    
     data = Yolodata(is_train = False, transform = transforms, cfg_param = cfg_param)
-    demo_loader = DataLoader(data, batch_size = 1, num_workers = 4, pin_memory = True, drop_last = False, shuffle = False)
+    demo_loader = DataLoader(data, batch_size = 1, num_workers = 0, pin_memory = True, drop_last = False, shuffle = False, collate_fn=collate_fn)
     
     model = DarkNet53(args.cfg, cfg_param)
     if args.checkpoint is not None:
