@@ -23,6 +23,9 @@ class Evaluator:
         predict_all = []
         gt_labels = []
         for i, batch in enumerate(self.eval_loader):
+            #drop the invalid frames
+            if batch is None:
+                continue
             input_img, targets, _ = batch
             
             input_img = input_img.to(self.device, non_blocking=True)
