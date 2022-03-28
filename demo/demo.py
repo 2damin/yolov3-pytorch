@@ -13,6 +13,9 @@ class Demo:
 
     def run(self):
         for i, batch in enumerate(self.data_loader):
+            #drop the invalid frames
+            if batch is None:
+                continue
             input_img, _, _ = batch
             
             input_img = input_img.to(self.device, non_blocking=True)
@@ -31,7 +34,7 @@ class Demo:
                     if best_box_list[b] is None:
                         continue
                     final_box_list = [bbox for bbox in best_box_list[b] if bbox[4] > 0.5]
-                    print("final :", len(final_box_list))
+                    print("final :", final_box_list)
 
                     if final_box_list is None:
                         continue
