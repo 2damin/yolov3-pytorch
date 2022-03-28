@@ -107,6 +107,7 @@ class Yolodata(Dataset):
                 return
             return img, target_data, anno_path
         else:
+            bbox = np.array([[0,0,0,0,0]])
             img, _ = self.transform((img, bbox))
             return img, None, None
 
