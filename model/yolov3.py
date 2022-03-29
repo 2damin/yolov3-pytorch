@@ -88,9 +88,8 @@ class YoloLayer(nn.Module):
         #batch, num_anchor, x_height, x_width, num_attributes
         self.lw, self.lh = x.shape[3], x.shape[2]
         self.anchor = self.anchor.to(x.device)
-        self.stride = torch.tensor([self.in_width // self.lw, self.in_height // self.lh]).to(x.device)
+        self.stride = torch.tensor([torch.div(self.in_width, self.lw, rounding_mode='floor'),torch.div(self.in_height, self.lh, rounding_mode='floor')], requires_grad=False, dtype=torch.int16).to(x.device)
         x = x.view(-1,self.anchor.shape[0],self.box_attr,self.lh,self.lw).permute(0,1,3,4,2).contiguous()
-        
         anchor_grid = self.anchor.view(1,-1,1,1,2).to(x.device)
 
         if not self.training:
