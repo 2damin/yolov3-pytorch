@@ -293,8 +293,8 @@ def torch2onnx(cfg_param = None, using_gpus = None):
 
     def to_numpy(tensor):
         return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
-
-    ort_session = onnxruntime.InferenceSession("./yolov3.onnx",providers=['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider'])
+    #providers=['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
+    ort_session = onnxruntime.InferenceSession("./yolov3.onnx", providers=['CPUExecutionProvider'])
 
     # ONNX 런타임에서 계산된 결과값
     ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x_test)}
@@ -308,7 +308,7 @@ def torch2onnx(cfg_param = None, using_gpus = None):
     
     # ONNX 런타임과 PyTorch에서 연산된 결과값 비교
     torch_np_outs = to_numpy(torch_outs)
-    np.testing.assert_allclose(torch_np_outs, ort_outs[0], rtol=1e-03, atol=1e-05)
+    np.testing.assert_allclose(torch_np_outs, ort_outs[0], rtol=1e-03, atol=0)
 
 if __name__ == "__main__":
     args = parse_args()
