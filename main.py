@@ -100,6 +100,8 @@ def train(cfg_param = None, using_gpus = None):
     if args.pretrained is not None:
         print("load pretrained model")
         model.load_darknet_weights(args.pretrained)
+    else:
+        model.initialize_weights()
     
     #Set the device what you use, GPU or CPU
     for i in using_gpus:
@@ -147,9 +149,9 @@ def train(cfg_param = None, using_gpus = None):
         yolo_model = model
 
     #Export Yolo model from pytorch to onnx format. yolov3.onnx
-    x_test = torch.randn(2, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
-    #torch.onnx.export(yolo_model, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
-    
+    x_test = torch.randn(1, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
+    torch.onnx.export(yolo_model, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
+
     #Set trainer
     trainer = Trainer(yolo_model, train_loader, eval_dataloader, cfg_param, eval_data.class_str, device, checkpoint, torch_writer = torch_writer)
     trainer.run()
@@ -171,39 +173,17 @@ def eval(cfg_param = None, using_gpus = None):
         print("device is cuda")
     elif device == torch.device('cpu'):
         print('device is cpu')
-    
+
+    if args.checkpoint is not None:
+        print("load pretrained model ", args.checkpoint)
+        checkpoint = torch.load(args.checkpoint)
+        model.load_state_dict(checkpoint['model_state_dict'])
+
     model = model.to(device)
     
     model.eval()
     
     torch.backends.cudnn.benchmark = True
-    
-    if args.checkpoint is not None:
-        print("load pretrained model ", args.checkpoint)
-        checkpoint = torch.load(args.checkpoint)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        
-    #Export Yolo model from pytorch to onnx format. yolov3.onnx
-    x_test = torch.randn(1, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
-    torch.onnx.export(model, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
-
-    def to_numpy(tensor):
-        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
-
-    ort_session = onnxruntime.InferenceSession("./yolov3.onnx")
-
-    # ONNX 런타임에서 계산된 결과값
-    ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x_test)}
-    
-    ort_outs = ort_session.run(None, ort_inputs)
-    
-    torch_outs = model(x_test)
-    
-    print("torch output : ", len(torch_outs), " ", torch_outs[0].shape)
-    print("onnx out: ", len(ort_outs), ort_outs[0].shape)
-    #torch_np_outs = to_numpy(torch_outs[2])
-    # ONNX 런타임과 PyTorch에서 연산된 결과값 비교
-    #np.testing.assert_allclose(torch_np_outs, ort_outs[2], rtol=1e-03, atol=1e-05)
 
     evaluator = Evaluator(model, eval_data, eval_loader, device, cfg_param)
     
@@ -216,6 +196,7 @@ def demo(cfg_param = None, using_gpus = None):
     demo_loader = DataLoader(data, batch_size = 1, num_workers = 0, pin_memory = True, drop_last = False, shuffle = False, collate_fn=collate_fn)
     
     model = DarkNet53(args.cfg, cfg_param)
+    
     if args.checkpoint is not None:
         print("load pretrained model ", args.checkpoint)
         checkpoint = torch.load(args.checkpoint)
@@ -286,7 +267,10 @@ def torch2onnx(cfg_param = None, using_gpus = None):
         yolo_model = model
     
     yolo_model.eval()
-        
+    
+    #Pre-check the model structure and size of parameters
+    summary.summary(yolo_model, input_size=(3, cfg_param["in_width"], cfg_param["in_height"]), device='cuda' if device == torch.device('cuda') else 'cpu')
+    
     x_test = torch.randn(1, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
     torch.onnx.export(yolo_model, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
 
