@@ -59,52 +59,6 @@ class ConvUp(nn.Module):
     def forward(self, x):
         return self.module(x)
 
-# class Upsample(nn.Module):
-#     def __init__(self, size, mode="nearest"):
-#         self.size = size
-#         self.mode = mode
-#     def forward(self, x):
-#         x = F.interpolate(x, scale_factor = self.size, mode = self.mode)
-#         return x
-
-class YoloLayer(nn.Module):
-    def __init__(self, layer_idx, layer_info, in_channel, in_width, in_height, is_train):
-        super(YoloLayer, self).__init__()
-        self.n_classes = int(layer_info['classes'])
-        self.ignore_thresh = float(layer_info['ignore_thresh'])
-        self.box_attr = self.n_classes + 5
-        mask_idxes = [int(x) for x in layer_info["mask"].split(",")]
-        anchor_all = [int(x) for x in layer_info["anchors"].split(",")]
-        anchor_all = [(anchor_all[i],anchor_all[i+1]) for i in range(0,len(anchor_all),2)]
-        self.anchor = torch.tensor([anchor_all[x] for x in mask_idxes])
-        self.in_width = in_width
-        self.in_height = in_height
-        self.training = is_train
-        self.stride = None
-        self.lw = None
-        self.lh = None
-        
-    def forward(self, x):
-        #batch, num_anchor, x_height, x_width, num_attributes
-        self.lw, self.lh = x.shape[3], x.shape[2]
-        self.anchor = self.anchor.to(x.device)
-        self.stride = torch.tensor([torch.div(self.in_width, self.lw, rounding_mode='floor'),torch.div(self.in_height, self.lh, rounding_mode='floor')], requires_grad=False, dtype=torch.int16).to(x.device)
-        x = x.view(-1,self.anchor.shape[0],self.box_attr,self.lh,self.lw).permute(0,1,3,4,2).contiguous()
-        anchor_grid = self.anchor.view(1,-1,1,1,2).to(x.device)
-
-        if not self.training:
-            grids = self._make_grid(self.lw, self.lh).to(x.device)
-            # Get outputs
-            x[...,0:2] = (torch.sigmoid(x[...,0:2]) + grids) * self.stride #center xy
-            x[...,2:4] = torch.exp(x[...,2:4]) * anchor_grid     # Width Height
-            x[...,4:] = torch.sigmoid(x[...,4:])       # Conf, Class
-            x = x.view(x.shape[0], -1, self.box_attr)
-        return x
-
-    def _make_grid(self, nx=20, ny=20):
-        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)]) #, indexing='ij'
-        return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
-
 def make_conv_layer(layer_idx, modules, layer_info, in_channel):
     filters = int(layer_info['filters'])
     size = int(layer_info['size'])
@@ -129,10 +83,8 @@ def make_conv_layer(layer_idx, modules, layer_info, in_channel):
                           nn.ReLU())
     #return modules
 
-def make_shortcut_layer(modules, layer_idx):
-    modules.add_module('layer_'+str(layer_idx)+'_shortcut', nn.Sequential())
-
 class DarkNet53(nn.Module):
+    yolo_strides = [[32,32],[16,16],[8,8]]
     def __init__(self, cfg, param):
         super().__init__()
         self.batch = int(param['batch'])
@@ -142,70 +94,55 @@ class DarkNet53(nn.Module):
         self.n_classes = int(param['class'])
         self.module_cfg = parse_model_config(cfg)
         self.module_list = self.set_layer(self.module_cfg)
-        self.yolo_layers = [layer[0] for layer in self.module_list if isinstance(layer[0], YoloLayer)]
+        self.yolo_layers = [layer[0] for layer in self.module_list if isinstance(layer[0], self.YoloLayer)]
         self.box_per_anchor = 3
-        self.fpn_grid_size = [self.in_width // 32, self.in_height // 32, self.in_width // 16, self.in_height // 16, self.in_width // 8, self.in_height // 8]
-        self.stride = [self.get_grid_wh(j) for j in range(3)]
-
+        self.yolo_grid_size = [[self.in_width // 32, self.in_height // 32], [self.in_width // 16, self.in_height // 16],[self.in_width // 8, self.in_height // 8]]
         self.seen = 0
         self.header_info = np.array([0, 0, 0, self.seen, 0], dtype=np.int32)
         
-        self.initialize_weights()
-        
-        self.softmax = nn.Softmax(dim=1)
-        
-        # self.conv1 = ConvBlock(in_channels = 3, out_channels = 32, kernel_size=3, stride = 1, padding = 1, name="layer1", act='leakyrelu')
+        #self.initialize_weights()
 
-        # self.conv2 = ConvBlock(in_channels = 32, out_channels = 64, kernel_size=3, stride = 2, padding = 1, name="layer2", act='leakyrelu')
+    class YoloLayer(nn.Module):
+        def __init__(self, yolo_idx, layer_info, stride, in_width, in_height):
+            super().__init__()
+            self.n_classes = int(layer_info['classes'])
+            self.ignore_thresh = float(layer_info['ignore_thresh'])
+            self.box_attr = self.n_classes + 5
+            mask_idxes = [int(x) for x in layer_info["mask"].split(",")]
+            anchor_all = [int(x) for x in layer_info["anchors"].split(",")]
+            anchor_all = [(anchor_all[i],anchor_all[i+1]) for i in range(0,len(anchor_all),2)]
+            self.anchor = torch.tensor([anchor_all[x] for x in mask_idxes])
+            self.in_width = in_width
+            self.in_height = in_height
+            self.stride = torch.tensor(stride, dtype=torch.int8)
+            self.lw = None
+            self.lh = None
 
-        # self.resblock1 = ResBlock(64, 32)
+        def forward(self, x):
+            #batch, num_anchor, x_height, x_width, num_attributes
+            self.lw, self.lh = x.shape[3], x.shape[2]
+            self.anchor = self.anchor.to(x.device)
+            self.stride = self.stride.to(x.device)
+            #self.stride = torch.tensor([torch.div(self.in_width, self.lw).long(),torch.div(self.in_height, self.lh).long()], requires_grad=False, dtype=torch.int16).to(x.device)
+            x = x.view(-1,self.anchor.shape[0],self.box_attr,self.lh,self.lw).permute(0,1,3,4,2).contiguous()
+            anchor_grid = self.anchor.view(1,-1,1,1,2).to(x.device)
+            if not self.training:
+                grids = self._make_grid(self.lw, self.lh).to(x.device)
+                #Get outputs
+                x[...,0:2] = (torch.sigmoid(x[...,0:2]) + grids) * self.stride #center xy
+                x[...,2:4] = torch.exp(x[...,2:4]) * anchor_grid     # Width Height
+                x[...,4:] = torch.sigmoid(x[...,4:])       # Conf, Class
+                x = x.view(x.shape[0], -1, self.box_attr)
+            return x
 
-        # self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        def _make_grid(self, nx=20, ny=20):
+            yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)]) #, indexing='ij'
+            return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
-        # self.resblock2 = ResBlock(128, 64)
-
-        # self.conv4 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
-
-        # self.resblock3 = ResBlock(256, 128)
-
-        # self.conv5 = nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1)
-
-        # self.resblock4 = ResBlock(512, 256)
-
-        # self.conv6 = nn.Conv2d(512, 1024, kernel_size=3, stride=2, padding=1)
-
-        # self.resblock5 = ResBlock(1024, 512)
-        
-        # self.conv7 = nn.Sequential(ConvBlock(in_channels = 1024, out_channels = 512, kernel_size=1, stride=1, padding=0, name="layer12_0", act='leakyrelu'),
-        #                            ConvBlock(in_channels = 512, out_channels = 1024, kernel_size=3, stride=1, padding=1, name="layer12_1", act='leakyrelu'),
-        #                            ConvBlock(in_channels = 1024, out_channels = 512, kernel_size=1, stride=1, padding=0, name="layer12_2", act='leakyrelu'),
-        #                            ConvBlock(in_channels = 512, out_channels = 1024, kernel_size=3, stride=1, padding=1, name="layer12_3", act='leakyrelu'),
-        #                            ConvBlock(in_channels = 1024, out_channels = 512, kernel_size=1, stride=1, padding=0, name="layer12_4", act='leakyrelu'))
-        # #FPN1
-        # self.fpn1_a = ConvUp(in_channels=256, out_channels=128, kernel_size=1, stride=1, padding=0, up_ratio=2)
-        # self.fpn1_b = nn.Sequential(ConvBlock(in_channels = 384, out_channels = 128, kernel_size=1, stride=1, padding=0, name="fpn1_b_0", act='leakyrelu'),
-        #                             ConvBlock(in_channels = 128, out_channels = 256, kernel_size=3, stride=1, padding=1, name="fpn1_b_1", act='leakyrelu'),
-        #                             ConvBlock(in_channels = 256, out_channels = 128, kernel_size=1, stride=1, padding=0, name="fpn1_b_2", act='leakyrelu'),
-        #                             ConvBlock(in_channels = 128, out_channels = 256, kernel_size=3, stride=1, padding=1, name="fpn1_b_3", act='leakyrelu'),
-        #                             ConvBlock(in_channels = 256, out_channels = 128, kernel_size=1, stride=1, padding=0, name="fpn1_b_4", act='leakyrelu'),
-        #                             ConvBlock(in_channels = 128, out_channels = 256, kernel_size=3, stride=1, padding=1, name="fpn1_b_5", act='leakyrelu'))
-        # self.fpn1_c = ConvBlock(in_channels=256, out_channels=self.output_channels, kernel_size=1, stride=1, padding=0, name="fpn1_c", act='linear')
-        # #FPN2
-        # self.fpn2_a = ConvUp(in_channels=512, out_channels=256, kernel_size=1, stride=1, padding=0, up_ratio=2)
-        # self.fpn2_b = nn.Sequential(ConvBlock(in_channels = 768, out_channels = 256, kernel_size=1, stride=1, padding=0, name="fpn2_b_0", act='leakyrelu'),
-        #                             ConvBlock(in_channels = 256, out_channels = 512, kernel_size=3, stride=1, padding=1, name="fpn2_b_1", act='leakyrelu'),
-        #                             ConvBlock(in_channels = 512, out_channels = 256, kernel_size=1, stride=1, padding=0, name="fpn2_b_2", act='leakyrelu'),
-        #                             ConvBlock(in_channels = 256, out_channels = 512, kernel_size=3, stride=1, padding=1, name="fpn2_b_3", act='leakyrelu'),
-        #                             ConvBlock(in_channels = 512, out_channels = 256, kernel_size=1, stride=1, padding=0, name="fpn2_b_4", act='leakyrelu'))
-        # self.fpn2_c = nn.Sequential(ConvBlock(in_channels = 256, out_channels = 512, kernel_size=3, stride=1, padding=1, name="fpn2_c_0", act='leakyrelu'),
-        #                             ConvBlock(in_channels=512, out_channels=self.output_channels, kernel_size=1, stride=1, padding=0, name="fpn2_c_1", act='linear'))
-        # #FPN3
-        # self.fpn3 = nn.Sequential(ConvBlock(in_channels = 512, out_channels = 1024, kernel_size=3, stride=1, padding=1, name="fpn3_a", act='leakyrelu'),
-        #                           ConvBlock(in_channels=1024, out_channels=self.output_channels, kernel_size=1, stride=1, padding=0, name='fpn3_b', act='linear'))
-    
     def set_layer(self, layer_info):
         module_list = nn.ModuleList()
         in_channels = [self.in_channels]
+        yolo_idx = 0
         for layer_idx, info in enumerate(layer_info):
             print(layer_idx, info['type'])
             modules = nn.Sequential()
@@ -213,10 +150,10 @@ class DarkNet53(nn.Module):
                 make_conv_layer(layer_idx, modules, info, in_channels[-1])
                 in_channels.append(int(info['filters']))
             elif info['type'] == 'shortcut':
-                make_shortcut_layer(modules, layer_idx)
+                modules.add_module('layer_'+str(layer_idx)+'_shortcut', nn.Identity())
                 in_channels.append(in_channels[-1])
             elif info['type'] == 'route':
-                modules.add_module('layer_'+str(layer_idx)+'_route', nn.Sequential())
+                modules.add_module('layer_'+str(layer_idx)+'_route', nn.Identity())
                 layers = [int(y) for y in info["layers"].split(",")]
                 if len(layers) == 1:
                     in_channels.append(in_channels[layers[0]])
@@ -227,9 +164,10 @@ class DarkNet53(nn.Module):
                                        nn.Upsample(scale_factor=int(info['stride']), mode='nearest'))
                 in_channels.append(in_channels[-1])
             elif info['type'] == 'yolo':
-                yololayer = YoloLayer(layer_idx, info, in_channels[-1], self.in_width, self.in_height, self.training)
+                yololayer = self.YoloLayer(yolo_idx, info, self.yolo_strides[yolo_idx], self.in_width, self.in_height)
                 modules.add_module('layer_'+ str(layer_idx)+'_yolo', yololayer)
                 in_channels.append(in_channels[-1])
+                yolo_idx += 1
             module_list.append(modules)
         return module_list            
     
@@ -248,66 +186,11 @@ class DarkNet53(nn.Module):
             elif isinstance(m, nn.Linear):
                 nn.init.kaiming_uniform_(m.weight)
                 nn.init.constant_(m.bias, 0)
-
-    def transform_grid_data(self, features, fpn_idx):
-        grid_w, grid_h= self.fpn_grid_size[fpn_idx*2: (fpn_idx+1)*2]
-        width_per_grid, height_per_grid = self.stride[fpn_idx]
-        _outs = []
-        for b in range(self.box_per_anchor):
-            offset = b * (5+self.n_classes)
-            objness = torch.sigmoid(features[:,offset,:,:])
-            box_xy = torch.sigmoid(features[:,offset+1:offset+3,:,:])
-            box_w = self.anchor_size[b*2] * torch.exp(features[:,offset+3,:,:]) * width_per_grid
-            box_h = self.anchor_size[b*2 + 1] * torch.exp(features[:,offset+4,:,:]) * height_per_grid
-            for j in range(grid_h):
-                for i in range(grid_w):
-                    #objness = torch.sigmoid(features[:,offset,j,i])
-                    box_x = (i+box_xy[:,0,j,i]) * width_per_grid
-                    box_y = (j+box_xy[:,1,j,i]) * height_per_grid
-                    #conf = self.softmax(features[:,offset+5:offset+5+self.n_classes,j,i])
-                    conf = features[:,offset+5:offset+5+self.n_classes,j,i]
-                    _out = torch.hstack((objness[:,j,i].reshape(self.batch,-1), box_x.reshape(self.batch,-1), box_y.reshape(self.batch,-1),
-                                         box_w[:,j,i].reshape(self.batch,-1), box_h[:,j,i].reshape(self.batch,-1), conf.reshape(self.batch,-1)))
-                    _outs.append(_out)
-        out = torch.transpose(torch.stack(_outs),1,0)
-        return out
-    
-    def get_grid_indexes(self, features):
-        yv, xv = torch.meshgrid([torch.arange(features.shape[2]), torch.arange(features.shape[3])])
-        grid_index = torch.stack((xv,yv), dim=2)
-        grid_index = grid_index.view(1,grid_index.shape[0],grid_index.shape[1],2).cuda()
-        return grid_index
-
-    def convert_box_type(self, features, yololayer, yolo_idx):
-        #get grid idexes
-        grid_indexes = self.get_grid_indexes(features)
-        #features = features.permute([0,2,3,1]).contiguous()
-        height_per_grid, width_per_grid = self.get_grid_wh(yolo_idx)
-
-        if not self.training:
-            for a in range(self.box_per_anchor):
-                #for each box in anchor
-                feat = features[:, :, :, yololayer.box_attr*a:yololayer.box_attr*(a+1)]
-                feat[:,:,:,0] = (torch.sigmoid(feat[:,:,:,0]) + grid_indexes[:,:,:,0]) * width_per_grid #x (tx + grid_idx)*grid_w
-                feat[:,:,:,1] = (torch.sigmoid(feat[:,:,:,1]) + grid_indexes[:,:,:,1]) * height_per_grid #h (ty + grid_idx)*grid_h
-                feat[:,:,:,2] = torch.exp(feat[:,:,:,2]) * yololayer.anchor[a][0]#w
-                feat[:,:,:,3] = torch.exp(feat[:,:,:,3]) * yololayer.anchor[a][1]#h
-                feat[:,:,:,4:] = torch.sigmoid(feat[:,:,:,4:]) #obj, cls 
-        return features
     
     def get_grid_wh(self, grid_idx):
-        grid_w, grid_h = self.fpn_grid_size[grid_idx * 2: (grid_idx + 1) * 2]
+        grid_w, grid_h = self.yolo_grid_size[grid_idx]
         w_per_grid, h_per_grid = self.in_width // grid_w, self.in_height // grid_h
-        return w_per_grid, h_per_grid
-    
-    def get_loss(self, features):
-        _loss = 0
-        
-        for f in features.shape[0]:
-            for g in self.gt:
-                features[f]
-        
-        return _loss 
+        return [w_per_grid, h_per_grid]
     
     def forward(self, x):
         layer_result = []
@@ -322,7 +205,6 @@ class DarkNet53(nn.Module):
                 layer_result.append(x)
             elif name['type'] == 'yolo':
                 yolo_x = layer(x)
-                #yolo_x = self.convert_box_type(yolo_x, layer, len(yolo_result))
                 layer_result.append(yolo_x)
                 yolo_result.append(yolo_x)
             elif name['type'] == 'upsample':
