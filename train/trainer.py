@@ -104,7 +104,7 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
-            self.lr_scheduler.step()
+            self.lr_scheduler.step(self.iter)
             self.iter += 1
             
             loss_name = ['total_loss','obj_loss', 'cls_loss', 'cls3_loss', 'box_loss']
