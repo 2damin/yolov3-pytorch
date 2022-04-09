@@ -36,6 +36,7 @@ I recommend Nvidia NGC docker image. [link](https://catalog.ngc.nvidia.com/orgs/
 
 ## Dependency
 
+pip install -r requirements.txt
 ```
 python >= 3.6
 
@@ -67,21 +68,37 @@ onnxruntime
 If training,
 
 ```{r, engine='bash', count_lines}
-(single gpu) python main.py --mode train --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
+(single gpu) python main.py --mode train --cfg ./yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
 
-(multi gpu) python main.py --mode train --cfg ./cfg/yolov3.cfg --gpus 0 1 2 3 --checkpoint ${saved_checkpoint_path}
+(multi gpu) python main.py --mode train --cfg ./yolov3.cfg --gpus 0 1 2 3 --checkpoint ${saved_checkpoint_path}
 ```
 
 If evaluate,
 
 ```{r, engine='bash', count_lines}
-python main.py --mode eval --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
+python main.py --mode eval --cfg ./yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
 ```
 
 If test,
 
 ```{r, engine='bash', count_lines}
-python main.py --mode demo --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
+python main.py --mode demo --cfg ./yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
+```
+
+If converting torch to onnx,
+
+target tensorrt version > 7
+```{r, engine='bash', count_lines}
+python main.py --mode onnx --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
+```
+
+target tensorrt version is 5.x
+
+1. change upsample layer
+   tensorrt(v5.x) is not support upsample scale factor, so you have to change upsample layer not using scale factor.
+
+```{r, engine='bash', count_lines}
+python main.py --mode onnx --cfg ./cfg/yolov3.cfg --gpus 0 --pretrained ./darknet53.conv.74 --checkpoint ${saved_checkpoint_path}
 ```
 
 ### option
@@ -111,3 +128,12 @@ tensorboard --logdir=./output --port 8888
 [YOLOv3 paper](https://arxiv.org/abs/1804.02767)
 
 [KITTI dataset](http://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=2d)
+
+
+# error
+
+- if libgl.so error when cv2
+```
+apt-get update
+apt-get install libgl1-mesa-glx
+```
