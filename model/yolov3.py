@@ -83,6 +83,12 @@ def make_conv_layer(layer_idx, modules, layer_info, in_channel):
                           nn.ReLU())
     #return modules
 
+import torch.nn.functional as F 
+class upsample_test_without_scale_factor(nn.Module):
+    def forward(self, x):
+        sh = torch.tensor(x.shape)
+        return F.interpolate(x, size=(sh[2] * 2, sh[3] * 2), mode='nearest')
+
 class DarkNet53(nn.Module):
     yolo_strides = [[32,32],[16,16],[8,8]]
     def __init__(self, cfg, param):
@@ -125,14 +131,16 @@ class DarkNet53(nn.Module):
             self.stride = self.stride.to(x.device)
             #self.stride = torch.tensor([torch.div(self.in_width, self.lw).long(),torch.div(self.in_height, self.lh).long()], requires_grad=False, dtype=torch.int16).to(x.device)
             x = x.view(-1,self.anchor.shape[0],self.box_attr,self.lh,self.lw).permute(0,1,3,4,2).contiguous()
-            anchor_grid = self.anchor.view(1,-1,1,1,2).to(x.device)
+
             if not self.training:
-                grids = self._make_grid(self.lw, self.lh).to(x.device)
+                pass
+                #anchor_grid = self.anchor.view(1,-1,1,1,2).to(x.device)
+                #grids = self._make_grid(self.lw, self.lh).to(x.device)
                 #Get outputs
-                x[...,0:2] = (torch.sigmoid(x[...,0:2]) + grids) * self.stride #center xy
-                x[...,2:4] = torch.exp(x[...,2:4]) * anchor_grid     # Width Height
-                x[...,4:] = torch.sigmoid(x[...,4:])       # Conf, Class
-                x = x.view(x.shape[0], -1, self.box_attr)
+                #x[...,0:2] = (torch.sigmoid(x[...,0:2]) + grids) * self.stride #center xy
+                #x[...,2:4] = torch.exp(x[...,2:4]) * anchor_grid     # Width Height
+                #x[...,4:] = torch.sigmoid(x[...,4:])       # Conf, Class
+                #x = x.view(x.shape[0], -1, self.box_attr)
             return x
 
         def _make_grid(self, nx=20, ny=20):
@@ -158,16 +166,31 @@ class DarkNet53(nn.Module):
                 if len(layers) == 1:
                     in_channels.append(in_channels[layers[0]])
                 elif len(layers) == 2:
-                    in_channels.append(in_channels[layers[0]] + in_channels[layers[1]])
+                    in_channels.append(in_channels[layers[0]] + in_channels[layers[1]+1])
             elif info['type'] == 'upsample':
+                # modules.add_module('layer_'+str(layer_idx)+'_upsample',
+                #                        upsample_test_without_scale_factor())
                 modules.add_module('layer_'+str(layer_idx)+'_upsample',
-                                       nn.Upsample(scale_factor=int(info['stride']), mode='nearest'))
+                                  nn.Upsample(scale_factor=int(info['stride']), mode='nearest'))
                 in_channels.append(in_channels[-1])
             elif info['type'] == 'yolo':
                 yololayer = self.YoloLayer(yolo_idx, info, self.yolo_strides[yolo_idx], self.in_width, self.in_height)
                 modules.add_module('layer_'+ str(layer_idx)+'_yolo', yololayer)
                 in_channels.append(in_channels[-1])
                 yolo_idx += 1
+            elif info['type'] == 'maxpool':
+                #_pad = int((int(info['size']) / int(info['stride'])) // 2)
+                _pad = int(int(info['size']) - 2)
+                if int(info['stride']) == 1:
+                    submodule = nn.Sequential(nn.ZeroPad2d((1,0,1,0)),
+                                              nn.MaxPool2d(kernel_size=int(info['size']), stride=int(info['stride']), padding=_pad))
+                    modules.add_module('layer_'+str(layer_idx)+'_maxpool',
+                                        submodule)
+                else:
+                    modules.add_module('layer_'+str(layer_idx)+'_maxpool',
+                                        nn.MaxPool2d(kernel_size=int(info['size']), stride=int(info['stride']), padding=_pad))
+                in_channels.append(in_channels[-1])
+                
             module_list.append(modules)
         return module_list            
     
@@ -196,12 +219,11 @@ class DarkNet53(nn.Module):
         layer_result = []
         yolo_result = []
         for idx, (name, layer) in enumerate(zip(self.module_cfg, self.module_list)):
-            #print(layer_result)
             if name['type'] == 'convolutional':
                 x = layer(x)
                 layer_result.append(x)
             elif name['type'] == 'shortcut':
-                x = x + layer_result[int(name['from'])]
+                x = layer_result[-1] + layer_result[int(name['from'])]
                 layer_result.append(x)
             elif name['type'] == 'yolo':
                 yolo_x = layer(x)
@@ -214,7 +236,10 @@ class DarkNet53(nn.Module):
                 layers = [int(y) for y in name["layers"].split(",")]
                 x = torch.cat([layer_result[l] for l in layers], 1)
                 layer_result.append(x)
-        return yolo_result if self.training else torch.cat(yolo_result, dim=1)
+            elif name['type'] == 'maxpool':
+                x = layer(x)
+                layer_result.append(x)
+        return yolo_result #if self.training else torch.cat(yolo_result, dim=1)
 
     def load_darknet_weights(self, weights_path):
         """Parses and loads the weights stored in 'weights_path'"""
@@ -280,7 +305,31 @@ class DarkNet53(nn.Module):
                     weights[ptr: ptr + num_w]).view_as(conv_layer.weight)
                 conv_layer.weight.data.copy_(conv_w)
                 ptr += num_w
+    
+    def save_darknet_weights(self, path, cutoff=-1):
+        """
+            @:param path    - path of the new weights file
+            @:param cutoff  - save layers between 0 and cutoff (cutoff = -1 -> all are saved)
+        """
+        fp = open(path, "wb")
+        self.header_info[3] = self.seen
+        self.header_info.tofile(fp)
 
+        # Iterate through layers
+        for i, (module_def, module) in enumerate(zip(self.module_cfg[:cutoff], self.module_list[:cutoff])):
+            if module_def["type"] == "convolutional":
+                conv_layer = module[0]
+                # If batch norm, load bn first
+                if module_def["batch_normalize"]:
+                    bn_layer = module[1]
+                    bn_layer.bias.data.cpu().numpy().tofile(fp)
+                    bn_layer.weight.data.cpu().numpy().tofile(fp)
+                    bn_layer.running_mean.data.cpu().numpy().tofile(fp)
+                    bn_layer.running_var.data.cpu().numpy().tofile(fp)
+                # Load conv bias
+                else:
+                    conv_layer.bias.data.cpu().numpy().tofile(fp)
+                # Load conv weights
+                conv_layer.weight.data.cpu().numpy().tofile(fp)
 
-
-        
+        fp.close()
