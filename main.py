@@ -136,9 +136,13 @@ def train(cfg_param = None, using_gpus = None):
             new_key = "module." + key
             checkpoint['model_state_dict'][new_key] = checkpoint['model_state_dict'].pop(key)
         model.load_state_dict(checkpoint['model_state_dict'])
+        
+    
+    # model.save_darknet_weights("./yolov3_kitti640480_v2.weights")
+    # sys.exit(1)
 
     #Pre-check the model structure and size of parameters
-    summary.summary(model, input_size=(3, cfg_param["in_width"], cfg_param["in_height"]), device='cuda' if device == torch.device('cuda') else 'cpu')
+    #summary.summary(model, input_size=(3, cfg_param["in_width"], cfg_param["in_height"]), device='cpu') #torch.device('cuda:0') else  if device == 'cpu'
     
     #Setting the torch log directory to use tensorboard
     torch_writer = SummaryWriter("./output")
@@ -147,10 +151,12 @@ def train(cfg_param = None, using_gpus = None):
         yolo_model = model.module
     else:
         yolo_model = model
-
+        
+    yolo_model.train()
+    
     #Export Yolo model from pytorch to onnx format. yolov3.onnx
-    x_test = torch.randn(1, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
-    torch.onnx.export(yolo_model, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
+    #x_test = torch.randn(1, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
+    #torch.onnx.export(yolo_model, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
 
     #Set trainer
     trainer = Trainer(yolo_model, train_loader, eval_dataloader, cfg_param, eval_data.class_str, device, checkpoint, torch_writer = torch_writer)
@@ -236,7 +242,7 @@ def torch2onnx(cfg_param = None, using_gpus = None):
     if len(using_gpus) == 1:
         device = torch.device("cuda:"+str(using_gpus[0]) if torch.cuda.is_available() else "cpu")
         torch.cuda.set_device(using_gpus[0])
-        model = torch.nn.DataParallel(model, device_ids=using_gpus)
+        #model = torch.nn.DataParallel(model, device_ids=using_gpus)
         model = model.cuda()
     elif len(using_gpus) == 0:
         print("Disable to use GPU. Exit process")
@@ -256,43 +262,52 @@ def torch2onnx(cfg_param = None, using_gpus = None):
     if args.checkpoint is not None:
         print("load pretrained model ", args.checkpoint)
         checkpoint = torch.load(args.checkpoint)
-        for key, value in checkpoint['model_state_dict'].copy().items():
-            new_key = "module." + key
-            checkpoint['model_state_dict'][new_key] = checkpoint['model_state_dict'].pop(key)
+        if len(using_gpus) == 0:
+            post_name = ""
+        else:
+            pass
+        #     post_name = "module."
+        # for key, value in checkpoint['model_state_dict'].copy().items():
+        #     new_key = post_name + key
+        #     checkpoint['model_state_dict'][new_key] = checkpoint['model_state_dict'].pop(key)
         model.load_state_dict(checkpoint['model_state_dict'])
 
-    if len(using_gpus) > 0:
-        yolo_model = model.module
-    else:
-        yolo_model = model
+    # if len(using_gpus) > 0:
+    #     yolo_model = model.module
+    # else:
+    #     yolo_model = model
     
-    yolo_model.eval()
+    model.eval()
+    
+    darknet_weights_name = args.checkpoint.replace(".pth", ".weights")
+    onnx_weights_name = args.checkpoint.replace(".pth", ".onnx")
+    model.save_darknet_weights(darknet_weights_name)
     
     #Pre-check the model structure and size of parameters
-    summary.summary(yolo_model, input_size=(3, cfg_param["in_width"], cfg_param["in_height"]), device='cuda' if device == torch.device('cuda') else 'cpu')
+    #summary.summary(yolo_model, input_size=(3, cfg_param["in_width"], cfg_param["in_height"]), device='cuda' if device == torch.device('cuda') else 'cpu')
     
-    x_test = torch.randn(1, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True).to(device)
-    torch.onnx.export(yolo_model, x_test, "yolov3.onnx", export_params=True, opset_version=11, input_names=['input'], output_names=['output'] )
+    x_test = torch.ones(1, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True, dtype=torch.float32).to(device)
+    torch.onnx.export(model, x_test, onnx_weights_name, export_params=True, opset_version=8, input_names=['input'], output_names=['output'] )
 
 
     def to_numpy(tensor):
         return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
     #providers=['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
-    ort_session = onnxruntime.InferenceSession("./yolov3.onnx", providers=['CPUExecutionProvider'])
+    ort_session = onnxruntime.InferenceSession(onnx_weights_name, providers=['CPUExecutionProvider'])
 
     # ONNX 런타임에서 계산된 결과값
     ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x_test)}
     
     ort_outs = ort_session.run(None, ort_inputs)
     
-    torch_outs = yolo_model(x_test)
+    torch_outs = model(x_test)
     
-    print("torch output : ", len(torch_outs), " ", torch_outs.shape)
+    #print("torch output : ", len(torch_outs), " ", torch_outs.shape)
     print("onnx out: ", len(ort_outs), ort_outs[0].shape)
-    
-    # ONNX 런타임과 PyTorch에서 연산된 결과값 비교
-    torch_np_outs = to_numpy(torch_outs)
-    np.testing.assert_allclose(torch_np_outs, ort_outs[0], rtol=1e-03, atol=0)
+    for i in range(len(torch_outs)):
+        # ONNX 런타임과 PyTorch에서 연산된 결과값 비교
+        torch_np_outs = to_numpy(torch_outs[i])
+        np.testing.assert_allclose(torch_np_outs, ort_outs[i], rtol=1e-03, atol=1e-05)
 
 if __name__ == "__main__":
     args = parse_args()
