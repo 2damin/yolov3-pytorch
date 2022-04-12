@@ -94,11 +94,12 @@ python main.py --mode onnx --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_
 
 target tensorrt version is 5.x
 
-1. change upsample layer
+1. **ONNX_EXPORT = True** in 'model/yolov3.py'
+   
    tensorrt(v5.x) is not support upsample scale factor, so you have to change upsample layer not using scale factor.
 
 ```{r, engine='bash', count_lines}
-python main.py --mode onnx --cfg ./cfg/yolov3.cfg --gpus 0 --pretrained ./darknet53.conv.74 --checkpoint ${saved_checkpoint_path}
+python main.py --mode onnx --cfg ./cfg/yolov3.cfg --gpus 0 --checkpoint ${saved_checkpoint_path}
 ```
 
 ### option
@@ -110,6 +111,8 @@ python main.py --mode onnx --cfg ./cfg/yolov3.cfg --gpus 0 --pretrained ./darkne
 --gpu : if you use GPU, set 1. If you use CPU, set 0.
 
 --checkpoint (optional) : the path of saved model checkpoint. Use it when you want to load the previous train, or you want to test(evaluate) the model.
+
+--pretrained (optional) : the path of darknet pretrained weights. Use it when you want to fine-tuning the model.
 
 
 

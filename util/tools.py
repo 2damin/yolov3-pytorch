@@ -125,7 +125,7 @@ def get_batch_statistics(outputs, targets, iou_threshold):
 
                 # Find the best matching target for our predicted box
                 iou, box_filtered_index = box_iou(pred_box.unsqueeze(0), torch.stack(filtered_targets)).max(0)
-
+                
                 # Remap the index in the list of filtered targets for that label to the index in the list with all targets.
                 box_index = filtered_target_position[box_filtered_index]
 
@@ -333,10 +333,7 @@ def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0)):
         _img_data = np.array(_img, dtype=np.uint8)
         img_data = Image.fromarray(_img_data, 'L')
     draw = ImageDraw.Draw(img_data)
-    
-    if cls is None:
-        cls = torch.zeros((boxes.shape[0]))
-    
+
     if boxes is not None:
         for i, box in enumerate(boxes):
             # if (box[4] + box[5]) / 2 < 0.5:

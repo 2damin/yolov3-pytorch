@@ -14,13 +14,11 @@ def get_transformations(cfg_param = None, is_train = None):
     if is_train:
         data_transform = tf.Compose([AbsoluteLabels(),
                                      DefaultAug(),
-                                     PadSquare(),
                                      RelativeLabels(),
                                      ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])),
                                      ToTensor(),])
     elif not is_train:
         data_transform = tf.Compose([AbsoluteLabels(),
-                                     PadSquare(),
                                      RelativeLabels(),
                                      ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])),
                                      ToTensor(),]) 
@@ -51,12 +49,10 @@ class ToTensor(object):
     def __call__(self, data):
         image, labels = data
         if self.is_debug == False:
-            image = torch.tensor(np.transpose(np.array(image, dtype=float) / 255,(2,0,1)),dtype=torch.float32)
+            image = torch.tensor(np.ascontiguousarray(np.transpose(np.array(image, dtype=float) / 255,(2,0,1))),dtype=torch.float32)
         elif self.is_debug == True:
             image = torch.tensor(np.array(image, dtype=float),dtype=torch.float32)
         labels = torch.FloatTensor(np.array(labels))
-        # filled_labels = np.zeros((self.max_objects, 5), np.float32)
-        # filled_labels[range(len(labels))[:self.max_objects]] = labels[:self.max_objects]
         return image, labels
 
 class KeepAspect(object):

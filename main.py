@@ -1,4 +1,5 @@
 import os,sys
+from pandas import cut
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -58,9 +59,12 @@ def collate_fn(batch):
     imgs, targets, anno_path = list(zip(*batch))
 
     imgs = torch.stack([img for img in imgs])
+    
+    if targets[0] is None or anno_path[0] is None:
+        return imgs, None, None
+
     for i, boxes in enumerate(targets):
         boxes[:, 0] = i
-
     targets = torch.cat(targets,0)
 
     return imgs, targets, anno_path
@@ -202,6 +206,21 @@ def demo(cfg_param = None, using_gpus = None):
     demo_loader = DataLoader(data, batch_size = 1, num_workers = 0, pin_memory = True, drop_last = False, shuffle = False, collate_fn=collate_fn)
     
     model = DarkNet53(args.cfg, cfg_param)
+    model.eval()
+
+    #load pre-trained darknet weights
+    if args.pretrained is not None:
+        print("load pretrained model")
+        model.load_darknet_weights(args.pretrained)
+        chkpt = {'epoch': -1,
+                 'best_fitness': None,
+                 'training_results': None,
+                 'model': model.state_dict(),
+                 'optimizer': None}
+        target = args.pretrained.replace(".weights", ".pth")
+        torch.save(chkpt, target)
+    else:
+        model.initialize_weights()
     
     if args.checkpoint is not None:
         print("load pretrained model ", args.checkpoint)
@@ -220,6 +239,13 @@ def demo(cfg_param = None, using_gpus = None):
     
     model = model.to(device)
     model.eval()
+    
+    if args.pretrained is not None:
+        darknet_weights_name = args.pretrained.replace(".weights", "_new.weights")
+    elif args.checkpoint is not None:
+        darknet_weights_name = args.checkpoint.replace(".pth", ".weights")
+    model.save_darknet_weights(darknet_weights_name, cutoff=-1)
+
     torch.backends.cudnn.benchmark = True
 
     demo = Demo(model, data, demo_loader, device, cfg_param)
@@ -233,6 +259,8 @@ def torch2onnx(cfg_param = None, using_gpus = None):
     cfg_param['batch'] = 1
     model = DarkNet53(args.cfg, cfg_param)
     
+    if args.pretrained is not None:
+        model.load_darknet_weights(args.pretrained)
     #Set the device what you use, GPU or CPU
     for i in using_gpus:
         print("GPU total memory : {} free memory : {}".format(get_memory_total_MiB(i), get_memory_free_MiB(i)))
@@ -260,28 +288,15 @@ def torch2onnx(cfg_param = None, using_gpus = None):
     #If checkpoint is existed, load the previous checkpoint.
     checkpoint = None
     if args.checkpoint is not None:
-        print("load pretrained model ", args.checkpoint)
-        checkpoint = torch.load(args.checkpoint)
-        if len(using_gpus) == 0:
-            post_name = ""
-        else:
-            pass
-        #     post_name = "module."
-        # for key, value in checkpoint['model_state_dict'].copy().items():
-        #     new_key = post_name + key
-        #     checkpoint['model_state_dict'][new_key] = checkpoint['model_state_dict'].pop(key)
+        print("load checkpoint model ", args.checkpoint)
+        checkpoint = torch.load(args.checkpoint, map_location=torch.device('cpu'))
         model.load_state_dict(checkpoint['model_state_dict'])
-
-    # if len(using_gpus) > 0:
-    #     yolo_model = model.module
-    # else:
-    #     yolo_model = model
     
     model.eval()
     
     darknet_weights_name = args.checkpoint.replace(".pth", ".weights")
     onnx_weights_name = args.checkpoint.replace(".pth", ".onnx")
-    model.save_darknet_weights(darknet_weights_name)
+    model.save_darknet_weights(darknet_weights_name, cutoff=-1)
     
     #Pre-check the model structure and size of parameters
     #summary.summary(yolo_model, input_size=(3, cfg_param["in_width"], cfg_param["in_height"]), device='cuda' if device == torch.device('cuda') else 'cpu')
