@@ -5,13 +5,9 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import matplotlib
 import matplotlib.pyplot as plt
 from PIL import Image
-import matplotlib.patches as patches
 import numpy as np
 from util.tools import *
-from . import data_transforms
 import cv2
-import torchvision
-
 class Yolodata(Dataset):
     file_dir = ""
     anno_dir = ""
@@ -59,7 +55,8 @@ class Yolodata(Dataset):
 
         with open(img_path, 'rb') as f:
             img = np.array(Image.open(img_path).convert('RGB'), dtype=np.uint8)
-            #img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            #img = cv2.imread(img_path)
+            #img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             img_origin_h, img_origin_w = img.shape[:2]
 
         #if anno_dir is didnt exist, Test dataset
@@ -79,12 +76,7 @@ class Yolodata(Dataset):
                     #skip when no data
                     if len(gt_data) < 5:
                         continue
-                    #ignore very tiny GTs
                     cx, cy, w, h = float(gt_data[1]), float(gt_data[2]), float(gt_data[3]), float(gt_data[4])
-                    #trunc = float(gt_data[5]) if len(gt_data) > 5 else 0
-                    #occ = float(gt_data[6]) if len(gt_data) > 6 else 0
-                    # if w <= 20 or float(gt_data[7]) - float(gt_data[5]) <= 20:
-                    #     continue
                     bbox.append([float(gt_data[0]), cx, cy, w, h])
 
             #Change gt_box type
@@ -107,10 +99,9 @@ class Yolodata(Dataset):
                 return
             return img, target_data, anno_path
         else:
-            bbox = np.array([[0,0,0,0,0]])
+            bbox = np.array([[0,0,0,0,0]], dtype=np.float64)
             img, _ = self.transform((img, bbox))
             return img, None, None
-
 
     def __len__(self):
         return len(self.img_data)

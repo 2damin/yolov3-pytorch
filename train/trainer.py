@@ -3,12 +3,10 @@ import torch
 import torch.optim as optim
 import torch.profiler
 import torch.utils.data
-import torchvision.transforms as transforms
 
 from util.tools import *
 from train.loss import *
 from train.scheduler import *
-from torch.utils.data.dataloader import DataLoader
 from dataloader.yolodata import *
 from dataloader.data_transforms import *
 
@@ -57,9 +55,11 @@ class Trainer:
                             'model_state_dict': self.model.state_dict(),
                             'optimizer_state_dict': self.optimizer.state_dict(),
                             'loss': loss}, checkpoint_path)
+                
                 #evaluate
                 self.model.eval()
                 self.run_eval()
+
             
             if self.max_batch <= self.iter:
                 break
@@ -72,19 +72,15 @@ class Trainer:
                 continue
             input_img, targets, anno_path = batch
             
-            #input_wh = [input_img.shape[3], input_img.shape[2]]
-            # inv_img = inv_normalize(input_img)
-            # for b in range(len(targets)):
-            #     target_box = targets[b]['bbox']
-            #     target_cls = targets[b]['cls']
-            #     target_occ = targets[b]['occ']
-            #     for t in range(target_box.shape[0]):
-            #         print(target_box[t], input_wh)
-            #         target_box[t,0] *= input_wh[0]
-            #         target_box[t,2] *= input_wh[0]
-            #         target_box[t,1] *= input_wh[1]
-            #         target_box[t,3] *= input_wh[1]
-            #         drawBox(input_img.detach().numpy()[b], target_box, cls = targets[b]['cls'])
+            input_wh = [input_img.shape[3], input_img.shape[2]]
+            #inv_img = inv_normalize(input_img)
+            # for b in range(4):
+            #     target_box = targets[targets[:,0] == b,2:6]
+            #     target_box[:,0] *= input_wh[0]
+            #     target_box[:,2] *= input_wh[0]
+            #     target_box[:,1] *= input_wh[1]
+            #     target_box[:,3] *= input_wh[1]
+            #     drawBox(input_img.detach().numpy()[b], target_box, cls = None)
             # continue
             
             input_img = input_img.to(self.device, non_blocking=True)
@@ -104,7 +100,7 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
-            self.lr_scheduler.step()
+            self.lr_scheduler.step(self.iter)
             self.iter += 1
             
             loss_name = ['total_loss','obj_loss', 'cls_loss', 'cls3_loss', 'box_loss']
@@ -166,5 +162,3 @@ class Trainer:
                 ap_table += [[c, self.class_str[c], "%.5f" % ap[i]]]
             print(AsciiTable(ap_table).table)
         print("---- mAP {AP.mean():.5f} ----")
-        
-

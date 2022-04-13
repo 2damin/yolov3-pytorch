@@ -3,7 +3,6 @@ import numpy as np
 import PIL, time
 from train.loss import *
 import csv
-import pandas as pd
 from terminaltables import AsciiTable
 
 class Evaluator:

@@ -7,3 +7,5 @@ torchsummary
 pynvml
 imgaug
 onnx
+onnxruntime
+terminaltables

@@ -9,3 +9,5 @@ test_code.py
 darknet53.conv.74
 pretrained/
 __pycache__/
+*.npy
+*.dll

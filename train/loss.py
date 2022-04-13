@@ -28,6 +28,7 @@ class YoloLoss(nn.Module):
     def compute_loss(self, pred, targets = None, yolo_layers = None, tmp_img = None):
         loss = torch.zeros(1,device=self.device)
         lcls, lbox, lobj = torch.zeros(1, device=self.device), torch.zeros(1, device=self.device), torch.zeros(1, device=self.device)
+        lcls3 = torch.zeros(1, device=self.device)
         tcls, tbox, tindices, tanchors = self.get_targets_v2(targets, yolo_layers, preds = pred, tmp_img=tmp_img)
 
         #for yolo_layers
@@ -50,18 +51,32 @@ class YoloLoss(nn.Module):
                 tobj[batch_id, anc_id, gy, gx] = iou.detach().clamp(0).type(tobj.dtype)
                 
                 if ps.size(1) - 5 > 1:
+                    #all class loss
                     t = torch.zeros_like(ps[...,5:], device=self.device)
                     t[range(num_targets), tcls[pidx]] = 1
                     lcls += self.bcellogloss(ps[:,5:], t)
+
+                    #3 class loss
+                    t3 = torch.zeros_like(ps[...,5:8], device=self.device)
+                    for tc in range(tcls[pidx].shape[0]):
+                        if tcls[pidx][tc].item() < 3:
+                            t3[tc, 0] = 1
+                        elif tcls[pidx][tc].item() >= 3 and tcls[pidx][tc].item() < 6:
+                            t3[tc, 1] = 1
+                        else:
+                            t3[tc, 2] = 1
+                    p_cls3 = torch.cat((torch.sum(ps[...,5:8], 1).view(-1,1) / 3, torch.sum(ps[...,8:11], 1).view(-1,1) / 3, torch.sum(ps[...,11:], 1).view(-1,1) / 2),dim=1)
+                    lcls3 += self.bcellogloss(p_cls3, t3)
         
             lobj += self.bcellogloss(pout[...,4], tobj)
         
         lcls *= 0.05
+        lcls3 *= 0.05
         lobj *= 1.0
         lbox *= 0.5
         
-        loss = lcls + lobj + lbox
-        loss_list = [loss.item(), lobj.item(), lcls.item(), lbox.item()]
+        loss = lcls + lobj + lbox + lcls3
+        loss_list = [loss.item(), lobj.item(), lcls.item(), lcls3.item(), lbox.item()]
         return loss, loss_list
 
     
