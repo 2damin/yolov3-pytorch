@@ -86,7 +86,7 @@ class Yolodata(Dataset):
             empty_target = False
             if bbox.shape[0] == 0:
                 empty_target = True
-                bbox = np.array([[0,0,0,0,0]])
+                bbox = np.array([[0,0,0,0,0]], dtype=np.float64)
 
             #data augmentation
             img, bbox = self.transform((img, bbox))
