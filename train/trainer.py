@@ -1,7 +1,6 @@
 import time, os
 import torch
 import torch.optim as optim
-import torch.profiler
 import torch.utils.data
 
 from util.tools import *
@@ -34,7 +33,7 @@ class Trainer:
             self.iter = checkpoint['iteration']
 
         scheduler_multistep = optim.lr_scheduler.MultiStepLR(self.optimizer,
-                                                           milestones=[20,40,60],
+                                                           milestones=[10000,20000,30000],
                                                            gamma=0.5)
         #scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self.max_batch-hparam['burn_in'])
         
@@ -48,7 +47,7 @@ class Trainer:
             self.model.train()
             loss = self.run_iter()
             self.epoch += 1
-            if self.epoch % 10 == 0:
+            if self.epoch % 50 == 0:
                 checkpoint_path = os.path.join("./output", "model_epoch" + str(self.epoch) + ".pth")
                 torch.save({'epoch': self.epoch,
                             'iteration': self.iter,
@@ -103,7 +102,7 @@ class Trainer:
             self.lr_scheduler.step(self.iter)
             self.iter += 1
             
-            loss_name = ['total_loss','obj_loss', 'cls_loss', 'cls3_loss', 'box_loss']
+            loss_name = ['total_loss','obj_loss', 'cls_loss', 'box_loss']
 
             if i % 100 == 0:
                 duration = float(time.time() - start_time)
@@ -157,8 +156,14 @@ class Trainer:
         #print eval result
         if metrics_output is not None:
             precision, recall, ap, f1, ap_class = metrics_output
-            ap_table = [["Index", "Class", "AP"]]
+            ap_table = [["Index", "Class", "AP", "Precision", "Recall", "f1"]]
             for i, c in enumerate(ap_class):
-                ap_table += [[c, self.class_str[c], "%.5f" % ap[i]]]
+                ap_table += [[c, self.class_str[c], "%.5f" % ap[i], "%.5f" % precision[i], "%.5f" % recall[i], "%.5f" % f1[i]]]
             print(AsciiTable(ap_table).table)
         print("---- mAP {AP.mean():.5f} ----")
+
+        for c, a, p, r, f in zip(self.class_str, ap, precision, recall, f1):
+            self.torch_writer.add_scalars("Evaluation/AP", {c : a}, self.iter)
+            self.torch_writer.add_scalars("Evaluation/Precision", {c : p}, self.iter)
+            self.torch_writer.add_scalars("Evaluation/Recall", {c : r}, self.iter)
+            self.torch_writer.add_scalars("Evaluation/F1", {c : f}, self.iter)
