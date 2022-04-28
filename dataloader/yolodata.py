@@ -7,16 +7,16 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
 from util.tools import *
-import cv2
+
 class Yolodata(Dataset):
     file_dir = ""
     anno_dir = ""
     file_txt = ""
-    train_dir = "C:\\data\\kitti_dataset\\kitti_yolo\\training"
+    train_dir = "/data/kitti_dataset/kitti_yolo/training"
     train_txt = "train.txt"
-    valid_dir = "C:\\data\\kitti_dataset\\kitti_yolo\\eval"
+    valid_dir = "/data/kitti_dataset/kitti_yolo/eval"
     valid_txt = "eval.txt"
-    class_str = ['Car', 'Van', 'Truck', 'Pedestrian', 'Person_sitting', 'Cyclist', 'Tram', 'Misc']
+    class_str = ['left', 'right', 'stop', 'crosswalk', 'uturn', 'traffic_light']
     num_class = None
     img_data = []
     def __init__(self, is_train=True, transform=None, cfg_param=None):
@@ -25,13 +25,13 @@ class Yolodata(Dataset):
         self.transform = transform
         self.num_class = cfg_param['class']
         if self.is_train:
-            self.file_dir = self.train_dir+"\\Images\\"
-            self.file_txt = self.train_dir+"\\ImageSets\\"+self.train_txt
-            self.anno_dir = self.train_dir+"\\Annotations\\"
+            self.file_dir = self.train_dir+"/Images/"
+            self.file_txt = self.train_dir+"/ImageSets/"+self.train_txt
+            self.anno_dir = self.train_dir+"/Annotations/"
         else:
-            self.file_dir = self.valid_dir+"\\Images\\"
-            self.file_txt = self.valid_dir+"\\ImageSets\\"+self.valid_txt
-            self.anno_dir = self.valid_dir+"\\Annotations\\"
+            self.file_dir = self.valid_dir+"/Images/"
+            self.file_txt = self.valid_dir+"/ImageSets/"+self.valid_txt
+            self.anno_dir = self.valid_dir+"/Annotations/"
 
         img_names = []
         img_data = []
@@ -86,7 +86,7 @@ class Yolodata(Dataset):
             empty_target = False
             if bbox.shape[0] == 0:
                 empty_target = True
-                bbox = np.array([[0,0,0,0,0]])
+                bbox = np.array([[0,0,0,0,0]], dtype=np.float64)
 
             #data augmentation
             img, bbox = self.transform((img, bbox))
