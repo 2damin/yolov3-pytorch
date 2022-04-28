@@ -188,7 +188,7 @@ class DefaultAug(ImgAug):
             iaa.Affine(rotate=(-0, 0), translate_percent=(-0.1, 0.1), scale=(0.8, 1.5)),
             iaa.AddToBrightness((-60, 40)),
             iaa.AddToHue((-10, 10)),
-            iaa.Fliplr(0.5),
+            #iaa.Fliplr(0.5),
         ])
 
 class AbsoluteLabels(object):
