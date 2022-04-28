@@ -9,3 +9,4 @@ imgaug
 onnx
 onnxruntime
 terminaltables
+tqdm
