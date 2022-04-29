@@ -23,7 +23,7 @@ class Trainer:
         self.iter = 0
         self.torch_writer = torch_writer
         self.yololoss = YoloLoss(self.device, self.model.n_classes, hparam['ignore_cls'])
-        self.optimizer = optim.SGD(model.parameters(), lr=hparam['lr'], momentum=hparam['momentum'])
+        self.optimizer = optim.SGD(model.parameters(), lr=hparam['lr'], momentum=hparam['momentum'], weight_decay=hparam['decay'])
         self.class_str = class_str
 
         
@@ -37,6 +37,7 @@ class Trainer:
                                                            gamma=0.5)
         #scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self.max_batch-hparam['burn_in'])
         
+        #warm-up learning rate scheduler
         self.lr_scheduler = LearningRateWarmUP(optimizer=self.optimizer,
                                                warmup_iteration=hparam['burn_in'],
                                                target_lr=hparam['lr'],
@@ -58,8 +59,7 @@ class Trainer:
                 #evaluate
                 self.model.eval()
                 self.run_eval()
-
-            
+            # if iteration is greater than max_iteration, break
             if self.max_batch <= self.iter:
                 break
 
@@ -71,38 +71,38 @@ class Trainer:
                 continue
             input_img, targets, anno_path = batch
             
-            input_wh = [input_img.shape[3], input_img.shape[2]]
-            #inv_img = inv_normalize(input_img)
-            # for b in range(4):
+            # show the input image and bounding boxes on it
+
+            # input_wh = [input_img.shape[3], input_img.shape[2]]
+            # for b in range(input_img.shape[0]):
             #     target_box = targets[targets[:,0] == b,2:6]
             #     target_box[:,0] *= input_wh[0]
             #     target_box[:,2] *= input_wh[0]
             #     target_box[:,1] *= input_wh[1]
             #     target_box[:,3] *= input_wh[1]
-            #     drawBox(input_img.detach().numpy()[b], target_box, cls = None)
+            #     drawBox(input_img.detach().numpy()[b], target_box, cls = targets[targets[:,0] == b,1])
             # continue
             
             input_img = input_img.to(self.device, non_blocking=True)
 
             start_time = time.time()
 
+            #inference model
             output = self.model(input_img)
             
+            #compute loss
             loss, loss_list = self.yololoss.compute_loss(pred = output,
                                                         targets = targets,
                                                         yolo_layers = self.model.yolo_layers,
                                                         tmp_img = None)
             
             calc_time = time.time() - start_time
-            #print("{} iter {:.6f} lr {:.4f} loss / {} time".format(self.iter, get_lr(self.optimizer), loss.item(), calc_time))
-            
+
             loss.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.lr_scheduler.step(self.iter)
             self.iter += 1
-            
-            loss_name = ['total_loss','obj_loss', 'cls_loss', 'box_loss']
 
             if i % 100 == 0:
                 duration = float(time.time() - start_time)
@@ -111,12 +111,15 @@ class Trainer:
                 self.torch_writer.add_scalar("lr", get_lr(self.optimizer), self.iter)
                 self.torch_writer.add_scalar('example/sec', latency, self.iter)
                 self.torch_writer.add_scalar('total_loss', loss, self.iter)
+                loss_name = ['total_loss','obj_loss', 'cls_loss', 'box_loss']
                 for ln, ls in zip(loss_name, loss_list):
                     self.torch_writer.add_scalar(ln, ls, self.iter)
         return loss
     
     def run_eval(self):
+        #all predictions on eval dataset
         predict_all = []
+        #all ground truth on eval dataset
         gt_labels = []
         for i, batch in enumerate(self.eval_loader):
             #skip invalid frames
@@ -134,7 +137,7 @@ class Trainer:
             targets[...,4] *= input_wh[0]
             targets[...,3] *= input_wh[1]
             targets[...,5] *= input_wh[1]
-            start_time = time.time()
+
             with torch.no_grad():
                 output = self.model(input_img)
                 best_box_list = non_max_suppression(output, conf_thres=0.1, iou_thres=0.5)
@@ -153,7 +156,7 @@ class Trainer:
         metrics_output = ap_per_class(
             true_positives, pred_scores, pred_labels, gt_labels)
         
-        #print eval result
+        #print evaluation scores
         if metrics_output is not None:
             precision, recall, ap, f1, ap_class = metrics_output
             ap_table = [["Index", "Class", "AP", "Precision", "Recall", "f1"]]
