@@ -12,10 +12,10 @@ class Yolodata(Dataset):
     file_dir = ""
     anno_dir = ""
     file_txt = ""
-    train_dir = "/data/kitti_dataset/kitti_yolo/training"
-    train_txt = "train.txt"
-    valid_dir = "/data/kitti_dataset/kitti_yolo/eval"
-    valid_txt = "eval.txt"
+    train_dir = "C:\\data\\tstl_data"
+    train_txt = "all.txt"
+    valid_dir = "C:\\data\\tstl_eval"
+    valid_txt = "all.txt"
     class_str = ['left', 'right', 'stop', 'crosswalk', 'uturn', 'traffic_light']
     num_class = None
     img_data = []
@@ -25,13 +25,13 @@ class Yolodata(Dataset):
         self.transform = transform
         self.num_class = cfg_param['class']
         if self.is_train:
-            self.file_dir = self.train_dir+"/Images/"
-            self.file_txt = self.train_dir+"/ImageSets/"+self.train_txt
-            self.anno_dir = self.train_dir+"/Annotations/"
+            self.file_dir = self.train_dir+"\\JPEGImages\\"
+            self.file_txt = self.train_dir+"\\ImageSets\\"+self.train_txt
+            self.anno_dir = self.train_dir+"\\Annotations\\"
         else:
-            self.file_dir = self.valid_dir+"/Images/"
-            self.file_txt = self.valid_dir+"/ImageSets/"+self.valid_txt
-            self.anno_dir = self.valid_dir+"/Annotations/"
+            self.file_dir = self.valid_dir+"\\JPEGImages\\"
+            self.file_txt = self.valid_dir+"\\ImageSets\\"+self.valid_txt
+            self.anno_dir = self.valid_dir+"\\Annotations\\"
 
         img_names = []
         img_data = []
@@ -48,16 +48,12 @@ class Yolodata(Dataset):
                 img_data.append(i+".PNG")
         print("data len : {}".format(len(img_data)))
         self.img_data = img_data
-        #self.resize = tf.Resize([cfg_param['in_width'],cfg_param['in_height']])
-    
+
     def __getitem__(self, index):
         img_path = self.file_dir + self.img_data[index]
 
         with open(img_path, 'rb') as f:
             img = np.array(Image.open(img_path).convert('RGB'), dtype=np.uint8)
-            #img = cv2.imread(img_path)
-            #img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            img_origin_h, img_origin_w = img.shape[:2]
 
         #if anno_dir is didnt exist, Test dataset
         if os.path.isdir(self.anno_dir):
@@ -66,6 +62,7 @@ class Yolodata(Dataset):
                 txt_name = txt_name.replace(ext, ".txt")
             anno_path = self.anno_dir + txt_name
             
+            #skip if no anno_file
             if not os.path.exists(anno_path):
                 return
             bbox = []
@@ -83,21 +80,19 @@ class Yolodata(Dataset):
             bbox = np.array(bbox)
             
             #skip empty target
-            empty_target = False
             if bbox.shape[0] == 0:
-                empty_target = True
-                bbox = np.array([[0,0,0,0,0]], dtype=np.float64)
+                return
 
             #data augmentation
             img, bbox = self.transform((img, bbox))
 
-            if not empty_target:
+            if bbox.shape[0] != 0:
                 batch_idx = torch.zeros(bbox.shape[0])
                 #batch_idx, cls, x, y, w, h
                 target_data = torch.cat((batch_idx.view(-1,1),bbox),dim=1)
+                return img, target_data, anno_path
             else:
                 return
-            return img, target_data, anno_path
         else:
             bbox = np.array([[0,0,0,0,0]], dtype=np.float64)
             img, _ = self.transform((img, bbox))
