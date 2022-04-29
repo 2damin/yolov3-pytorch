@@ -1,8 +1,7 @@
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-from PIL import Image, ImageDraw
-import sys
+from PIL import Image, ImageDraw, ImageFont
 import math
 import random
 import tqdm
@@ -333,7 +332,8 @@ def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0)):
         _img_data = np.array(_img, dtype=np.uint8)
         img_data = Image.fromarray(_img_data, 'L')
     draw = ImageDraw.Draw(img_data)
-
+    fontsize = 15
+    font = ImageFont.truetype("./arial.ttf", fontsize)
     if boxes is not None:
         for i, box in enumerate(boxes):
             # if (box[4] + box[5]) / 2 < 0.5:
@@ -346,11 +346,11 @@ def drawBox(_img, boxes = None, cls = None, mode = 0, color = (0,255,0)):
                 draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=(0,255,0), width=1)
             else:
                 draw.rectangle((box[0],box[1],box[2],box[3]), outline=(0,255,0), width=1)
-            #draw.text((box[0],box[1]), str(int(cls[i])), fill ="red")
+            draw.text((box[0],box[1]), str(int(cls[i])), fill ="red", font=font)
     plt.imshow(img_data)
     plt.show()
 
-def drawBoxlist(_img, boxes : list = [], mode : int = 0):
+def drawBoxlist(_img, boxes : list = [], mode : int = 0, name : str = ""):
     _img = _img * 255
     #img dim is [C,H,W]
     if _img.shape[0] == 3:
@@ -360,13 +360,17 @@ def drawBoxlist(_img, boxes : list = [], mode : int = 0):
         _img_data = np.array(_img, dtype=np.uint8)
         img_data = Image.fromarray(_img_data, 'L')
     draw = ImageDraw.Draw(img_data)
+    fontsize = 15
+    font = ImageFont.truetype("./arial.ttf", fontsize)
     for box in boxes:       
         if mode == 0:
             draw.rectangle((box[0] - box[2]/2, box[1] - box[3]/2, box[0] + box[2]/2, box[1] + box[3]/2), outline=(0,255,0), width=1)
+            draw.text((box[0],box[1]), str(int(box[5]))+","+str(int(box[4]*100)) , fill ="red", font=font)
         else:
             draw.rectangle((box[0],box[1],box[2],box[3]), outline=(0,255,0), width=1)
-    plt.imshow(img_data)
-    plt.show()
+            draw.text((box[0],box[1]), str(int(box[5]))+","+str(int(box[4]*100)), fill ="red", font=font)
+    #img_data.show("draw")
+    img_data.save(name+".png")
 
 def check_outrange(box, img_size):
     box = box.detach().cpu().numpy()
@@ -601,7 +605,6 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         output[xi] = x[i].detach().cpu()
 
     return output
-
 
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
