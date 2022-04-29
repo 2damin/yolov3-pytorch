@@ -131,6 +131,8 @@ class DarkNet53(nn.Module):
             self.lh = None
 
         def forward(self, x):
+            if ONNX_EXPORT:
+                return x
             self.lw, self.lh = x.shape[3], x.shape[2]
             self.anchor = self.anchor.to(x.device)
             self.stride = self.stride.to(x.device)
@@ -139,16 +141,13 @@ class DarkNet53(nn.Module):
             # to   [batch, num_anchor, x_height, x_width, num_attributes]
             x = x.view(-1,self.anchor.shape[0],self.box_attr,self.lh,self.lw).permute(0,1,3,4,2).contiguous()
             if not self.training:
-                if ONNX_EXPORT:
-                    return x
-                else:
-                    anchor_grid = self.anchor.view(1,-1,1,1,2).to(x.device)
-                    grids = self._make_grid(self.lw, self.lh).to(x.device)
-                    #Get outputs
-                    x[...,0:2] = (torch.sigmoid(x[...,0:2]) + grids) * self.stride #center xy
-                    x[...,2:4] = torch.exp(x[...,2:4]) * anchor_grid     # Width Height
-                    x[...,4:] = torch.sigmoid(x[...,4:])       # Conf, Class
-                    x = x.view(x.shape[0], -1, self.box_attr)
+                anchor_grid = self.anchor.view(1,-1,1,1,2).to(x.device)
+                grids = self._make_grid(self.lw, self.lh).to(x.device)
+                #Get outputs
+                x[...,0:2] = (torch.sigmoid(x[...,0:2]) + grids) * self.stride #center xy
+                x[...,2:4] = torch.exp(x[...,2:4]) * anchor_grid     # Width Height
+                x[...,4:] = torch.sigmoid(x[...,4:])       # Conf, Class
+                x = x.view(x.shape[0], -1, self.box_attr)
             return x
 
         def _make_grid(self, nx=20, ny=20):
