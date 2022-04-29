@@ -107,7 +107,7 @@ class Trainer:
             if i % 100 == 0:
                 duration = float(time.time() - start_time)
                 latency = self.model.batch / duration
-                print("epoch {} / iter {} lr {} , loss {} latency {}".format(self.epoch, self.iter, get_lr(self.optimizer), loss.item(), calc_time))
+                print("epoch {} / iter {} lr {:.5f} , loss {:.5f} latency {:.5f}".format(self.epoch, self.iter, get_lr(self.optimizer), loss.item(), calc_time))
                 self.torch_writer.add_scalar("lr", get_lr(self.optimizer), self.iter)
                 self.torch_writer.add_scalar('example/sec', latency, self.iter)
                 self.torch_writer.add_scalar('total_loss', loss, self.iter)
