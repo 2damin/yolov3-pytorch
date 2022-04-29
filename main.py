@@ -301,7 +301,7 @@ def torch2onnx(cfg_param = None, using_gpus = None):
     #summary.summary(yolo_model, input_size=(3, cfg_param["in_width"], cfg_param["in_height"]), device='cuda' if device == torch.device('cuda') else 'cpu')
     
     x_test = torch.ones(1, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True, dtype=torch.float32).to(device)
-    torch.onnx.export(model, x_test, onnx_weights_name, export_params=True, opset_version=8, input_names=['input'], output_names=['output'] )
+    torch.onnx.export(model, x_test, onnx_weights_name, export_params=True, opset_version=9, input_names=['input'], output_names=['output'] )
 
 
     def to_numpy(tensor):
