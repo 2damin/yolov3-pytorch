@@ -13,6 +13,7 @@ from util.tools import minmax2cxcy, xywh2xyxy_np
 def get_transformations(cfg_param = None, is_train = None):
     if is_train:
         data_transform = tf.Compose([AbsoluteLabels(),
+                                     FlipAug_tstl(),
                                      DefaultAug(),
                                      RelativeLabels(),
                                      ResizeImage(new_size = (cfg_param['in_width'], cfg_param['in_height'])),
@@ -155,16 +156,34 @@ class ImgAug(object):
             [BoundingBox(*box[1:], label=box[0]) for box in boxes],
             shape=img.shape)
 
+        if len(bounding_boxes) != 0:
+            origin_box = bounding_boxes[0]
+
         # Apply augmentations
         img, bounding_boxes = self.augmentations(
             image=img,
             bounding_boxes=bounding_boxes)
 
+        if len(self.augmentations.find_augmenters_by_name('fliplr_tstl')) != 0 and len(bounding_boxes) != 0:
+            augmented_box = bounding_boxes[0]
+            if origin_box.x1 != augmented_box.x1 or origin_box.x2 != augmented_box.x2:
+                use_flip = True
+            else:
+                use_flip = False
+
+            if use_flip:
+                for box_idx, box in enumerate(bounding_boxes):
+                    if box.label == 0:
+                        bounding_boxes[box_idx].label = 1
+                    elif box.label == 1:
+                        bounding_boxes[box_idx].label = 0
+        
         # Clip out of image boxes
+        bounding_boxes = bounding_boxes.remove_out_of_image_fraction(0.4)
         bounding_boxes = bounding_boxes.clip_out_of_image()
 
         # Convert bounding boxes back to numpy
-        boxes = np.zeros((len(bounding_boxes), 5))
+        boxes = np.zeros((len(bounding_boxes), 5), dtype=np.float64)
         for box_idx, box in enumerate(bounding_boxes):
             # Extract coordinates for unpadded + unscaled image
             x1 = box.x1
@@ -185,10 +204,17 @@ class DefaultAug(ImgAug):
     def __init__(self, ):
         self.augmentations = iaa.Sequential([
             iaa.Sharpen((0.0, 0.1)),
-            iaa.Affine(rotate=(-0, 0), translate_percent=(-0.1, 0.1), scale=(0.8, 1.5)),
-            iaa.AddToBrightness((-60, 40)),
+            iaa.Affine(rotate=(-0, 0), translate_percent=(-0.1, 0.1), scale=(1.0, 2.0)),
+            iaa.AddToBrightness((-40, 60)),
             iaa.AddToHue((-10, 10)),
-            #iaa.Fliplr(0.5),
+        ])
+
+#flip augmentation for tstl dataset
+#if flip occured, change label of the box between "left sign" and "right sign"
+class FlipAug_tstl(ImgAug):
+    def __init__(self, ):
+        self.augmentations = iaa.Sequential([
+                iaa.Fliplr(0.5, name='fliplr_tstl')
         ])
 
 class AbsoluteLabels(object):
