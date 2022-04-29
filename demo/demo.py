@@ -1,5 +1,4 @@
 import torch
-import time
 from train.loss import *
 
 class Demo:
@@ -25,8 +24,6 @@ class Demo:
 
             num_batch = input_img.shape[0]
             with torch.no_grad():
-                start_time = time.time()
-            
                 output = self.model(input_img)
                 best_box_list = non_max_suppression(output,
                                                     conf_thres=0.4,
@@ -42,4 +39,4 @@ class Demo:
                     if final_box_list is None:
                         continue
                     show_img = input_img[b].detach().cpu().numpy()
-                    drawBoxlist(show_img, final_box_list, mode=1)
+                    drawBoxlist(show_img, final_box_list, mode=1, name = str(i)+"_"+str(b))
