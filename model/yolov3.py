@@ -6,6 +6,7 @@ import numpy as np
 import time,sys
 from util.tools import *
 
+#if export onnx model, need to ONNX_EXPORT = True
 ONNX_EXPORT = False
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, name, batchnorm, act='leaky'):
@@ -130,11 +131,12 @@ class DarkNet53(nn.Module):
             self.lh = None
 
         def forward(self, x):
-            #batch, num_anchor, x_height, x_width, num_attributes
             self.lw, self.lh = x.shape[3], x.shape[2]
             self.anchor = self.anchor.to(x.device)
             self.stride = self.stride.to(x.device)
-            #self.stride = torch.tensor([torch.div(self.in_width, self.lw).long(),torch.div(self.in_height, self.lh).long()], requires_grad=False, dtype=torch.int16).to(x.device)
+            # reshape input tensor from 4-dim to 5-dim. 
+            # from [batch, num_anchor * num_attributes, x_height, x_width]
+            # to   [batch, num_anchor, x_height, x_width, num_attributes]
             x = x.view(-1,self.anchor.shape[0],self.box_attr,self.lh,self.lw).permute(0,1,3,4,2).contiguous()
             if not self.training:
                 if ONNX_EXPORT:
