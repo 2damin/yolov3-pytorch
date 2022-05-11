@@ -98,7 +98,7 @@ def train(cfg_param = None, using_gpus = None):
 
     #Get OD model
     model = DarkNet53(args.cfg, cfg_param)
-    
+    print("cuda : " + str(torch.cuda.is_available()))
     #load pre-trained darknet weights
     if args.pretrained is not None:
         print("load pretrained model")
