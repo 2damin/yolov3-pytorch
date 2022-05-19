@@ -50,7 +50,7 @@ class YoloLoss(nn.Module):
                 
                 tobj[batch_id, anc_id, gy, gx] = iou.detach().clamp(0).type(tobj.dtype)
                 
-                if ps.size(1) - 5 > 1:
+                if ps.size(1) - 5 >= 1:
                     #all class loss
                     t = torch.zeros_like(ps[...,5:], device=self.device)
                     t[range(num_targets), tcls[pidx]] = 1
