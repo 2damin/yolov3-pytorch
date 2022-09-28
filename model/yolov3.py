@@ -92,12 +92,6 @@ def make_conv_layer(layer_idx, modules, layer_info, in_channel):
                           nn.ReLU())
     #return modules
 
-import torch.nn.functional as F 
-class upsample_test_without_scale_factor(nn.Module):
-    def forward(self, x):
-        sh = torch.tensor(x.shape)
-        return F.interpolate(x, size=(sh[2] * 2, sh[3] * 2), mode='nearest')
-
 class DarkNet53(nn.Module):
     yolo_strides = [[32,32],[16,16],[8,8]]
     def __init__(self, cfg, param):
@@ -174,12 +168,8 @@ class DarkNet53(nn.Module):
                 elif len(layers) == 2:
                     in_channels.append(in_channels[layers[0]] + in_channels[layers[1]+1])
             elif info['type'] == 'upsample':
-                if ONNX_EXPORT:
-                    modules.add_module('layer_'+str(layer_idx)+'_upsample',
-                                       upsample_test_without_scale_factor())
-                else:
-                    modules.add_module('layer_'+str(layer_idx)+'_upsample',
-                                       nn.Upsample(scale_factor=int(info['stride']), mode='nearest'))
+                modules.add_module('layer_'+str(layer_idx)+'_upsample',
+                                    nn.Upsample(scale_factor=int(info['stride']), mode='nearest'))
                 in_channels.append(in_channels[-1])
             elif info['type'] == 'yolo':
                 yololayer = self.YoloLayer(yolo_idx, info, self.yolo_strides[yolo_idx], self.in_width, self.in_height)
