@@ -292,7 +292,7 @@ def torch2onnx(cfg_param = None, using_gpus = None):
     
     #export from torch model to ONNX format
     x_test = torch.ones(1, 3, cfg_param["in_width"], cfg_param["in_height"], requires_grad=True, dtype=torch.float32).to(device)
-    torch.onnx.export(model, x_test, onnx_weights_name, export_params=True, opset_version=9, input_names=['input'], output_names=['output'] )
+    torch.onnx.export(model, x_test, onnx_weights_name, export_params=True, opset_version=11, input_names=['input'], output_names=['output'], do_constant_folding=True)
 
     def to_numpy(tensor):
         return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
