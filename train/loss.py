@@ -192,7 +192,7 @@ class YoloLoss(nn.Module):
         if torch.equal(targets,torch.zeros(6).to(targets.device)):
             return tcls, tboxes, indices, anch
         
-        gain = torch.ones(7, device=self.device)
+        gain = torch.ones(7, device=self.device, dtype=torch.int64)
         
         ai = torch.arange(num_anc, device=targets.device).float().view(num_anc, 1).repeat(1, num_t)
         targets = torch.cat((targets.repeat(num_anc, 1, 1), ai[:, :, None]), 2).to(self.device)
